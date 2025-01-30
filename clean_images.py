@@ -38,7 +38,7 @@ def resize_image(final_size: int, im: Image.Image) -> Image.Image:
 def clean_image_data(
     input_folder: str = "images",
     output_folder: str = "cleaned_images",
-    final_size: int = 512
+    final_size: int = 256
 ) -> None:
     """
     Cleans an image dataset by resizing all images while maintaining aspect ratio and padding.
