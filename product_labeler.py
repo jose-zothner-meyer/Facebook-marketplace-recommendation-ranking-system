@@ -75,17 +75,3 @@ class ProductLabeler:
             Dict[str, Dict]: A dictionary containing the encoder and decoder.
         """
         return {"encoder": self.encoder, "decoder": self.decoder}
-
-
-# Example Usage:
-if __name__ == "__main__":
-    products_file = "data/Cleaned_Products.csv"
-    output_file = "data/Cleaned_Products_with_Labels.csv"
-
-    labeler = ProductLabeler(products_file, output_file)
-    labeler.process()
-
-    # Print encoder and decoder mappings
-    mappings = labeler.get_encoder_decoder()
-    print("Encoder:", mappings["encoder"])
-    print("Decoder:", mappings["decoder"])
