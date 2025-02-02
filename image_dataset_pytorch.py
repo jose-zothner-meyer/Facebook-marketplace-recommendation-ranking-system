@@ -13,9 +13,9 @@ df = pd.read_csv(csv_path)
 # Initialize ProductLabeler and retrieve the encoder and decoder
 try:
     product_labeler = ProductLabeler(
-        products_file="Cleaned_Products.csv",
-        images_file="Images.csv",
-        output_file="output.csv"
+        products_file="data/Cleaned_Products.csv",
+        images_file="data/Images.csv",
+        output_file="data/output.csv"
     )
 except FileNotFoundError as e:
     print(f"File not found: {e}")
@@ -80,7 +80,7 @@ class ImageDataset(Dataset):
         return image, label_encoded
 
 # Initialize dataset with the given image directory
-IMAGE_DIR = "images/"  # Configure this based on your environment or project structure
+IMAGE_DIR = "cleaned_images/"  # Configure this based on your environment or project structure
 dataset = ImageDataset(csv_path, IMAGE_DIR, transform=transform)
 
 # Create a DataLoader to load data in batches

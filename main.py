@@ -81,7 +81,7 @@ class ImageDataset(Dataset):
         return image, label_encoded
 
 # Initialize dataset with the given image directory
-image_dir = "images/"  # Change this to the actual path where images are stored
+image_dir = "cleaned_images/"  # Change this to the actual path where images are stored
 dataset = ImageDataset(csv_path, image_dir, transform=transform)
 
 # Create a DataLoader to load data in batches
