@@ -7,7 +7,7 @@ from PIL import Image
 from product_labeler import ProductLabeler
 
 # Load the CSV file containing image paths and labels
-csv_path = "training_data.csv"
+csv_path = "data/training_data.csv"
 df = pd.read_csv(csv_path)
 
 # Initialize ProductLabeler and retrieve the encoder and decoder
