@@ -67,7 +67,7 @@ class ImageDataset(Dataset):
             tuple: (image, label), where image is a transformed tensor and label is an integer.
         """
         img_name = self.data.iloc[idx, 0]  # Get image file name from CSV
-        img_path = os.path.join(self.image_dir, img_name)  # Construct full image path
+        img_path = os.path.join(self.image_dir, img_name + ".jpg")  # Construct full image path
         label = self.data.iloc[idx, 1]  # Retrieve category label
         label_encoded = encoder.get(label, -1)  # Convert category label to numerical value, default to -1 if not found
         
