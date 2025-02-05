@@ -20,9 +20,9 @@ def create_feature_extractor():
     # For demonstration purposes, we instantiate a pretrained ResNet-50.
     # If you have a specific checkpoint, uncomment and modify the following lines:
     #
-    # model = models.resnet50(pretrained=False)
-    # checkpoint_path = "path_to_your_trained_classification_model.pth"
-    # model.load_state_dict(torch.load(checkpoint_path))
+     model = models.resnet50(pretrained=False)
+     checkpoint_path = "model_evaluation/20250205_175327/weights/epoch_4.pth.pth"
+     model.load_state_dict(torch.load(checkpoint_path))
     #
     # Otherwise, use the standard pretrained model:
     model = models.resnet50(pretrained=True)

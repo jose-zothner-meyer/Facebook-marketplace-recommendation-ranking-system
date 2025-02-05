@@ -77,11 +77,11 @@ def inspect_dataset():
     print(f"\nTotal samples in dataset: {len(dataset)}")
     
     # Print a sample from the dataset at index 111 (if available).
-    try:
-        sample = dataset[111]
-        print("Sample at index 111:", sample)
-    except IndexError:
-        print("Index 111 is out of range for the dataset.")
+    #try:
+    #    sample = dataset[111]
+    #    print("Sample at index 111:", sample)
+    #except IndexError:
+    #    print("Index 111 is out of range for the dataset.")
 
 def train_model():
     """
