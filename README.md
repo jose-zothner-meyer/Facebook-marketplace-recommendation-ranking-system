@@ -36,7 +36,7 @@ This project involves multiple stages, including **data preprocessing, feature e
 - Encode product categories for supervised learning.
 
 ✅ **Step 2: Image Preprocessing**
-- Resize images to **512x512** pixels.
+- Resize images to **256x256** pixels.
 - Convert all images to **RGB** to ensure uniform input.
 - Apply **data augmentation** (if needed) to improve generalization.
 

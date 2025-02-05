@@ -4,89 +4,88 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
-from product_labeler import ProductLabeler
 
-# Load the CSV file containing image paths and labels
+# Define the CSV path containing the training data (image names and labels)
 csv_path = "data/training_data.csv"
-df = pd.read_csv(csv_path)
-
-# Initialize ProductLabeler and retrieve the encoder and decoder
-try:
-    product_labeler = ProductLabeler(
-        products_file="data/Cleaned_Products.csv",
-        images_file="data/Images.csv",
-        output_file="data/output.csv"
-    )
-except FileNotFoundError as e:
-    print(f"File not found: {e}")
-    raise
-except Exception as e:
-    print(f"An error occurred: {e}")
-    raise
-
-product_labeler.create_encoder_decoder()
-encoder = product_labeler.encoder  # Use encoder from ProductLabeler
-decoder = product_labeler.decoder  # Use decoder from ProductLabeler
-
-# Define transformations for data augmentation and normalization
-transform = transforms.Compose([
-    transforms.RandomHorizontalFlip(),  # Randomly flip images horizontally for augmentation
-    transforms.ToTensor(),  # Convert images to PyTorch tensors
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # Normalize pixel values: Keep It if: You're using a pretrained model (e.g., ResNet, VGG) that expects normalized inputs.
-])
 
 class ImageDataset(Dataset):
-    """Custom PyTorch Dataset class to handle image loading and processing."""
-    
-    def __init__(self, csv_file, image_dir, transform=None):
-        """
-        Initializes the dataset by loading image file names and labels from a CSV file.
-        
-        Args:
-            csv_file (str): Path to the CSV file with image names and labels.
-            image_dir (str): Directory where images are stored.
-            transform (callable, optional): Optional transform to be applied on an image.
-        """
-        self.data = pd.read_csv(csv_file)  # Load dataset from CSV
-        self.image_dir = image_dir  # Store image directory path
-        self.transform = transform  # Store transformation function
+    """
+    A custom PyTorch Dataset class for loading, transforming, and returning images with labels.
 
-    def __len__(self):
-        """Returns the total number of samples in the dataset."""
+    This dataset:
+      - Loads image names and labels from a CSV file.
+      - Applies a sequence of transformations (data augmentation and normalization) to the images.
+      - Returns image tensors along with their corresponding labels.
+    """
+    
+    def __init__(self, csv_file: str, image_dir: str):
+        """
+        Initialize the ImageDataset.
+
+        Args:
+            csv_file (str): Path to the CSV file containing image names and labels.
+            image_dir (str): Directory where image files are stored.
+        """
+        # Load the CSV data into a pandas DataFrame
+        self.data = pd.read_csv(csv_file)
+        # Save the image directory path
+        self.image_dir = image_dir
+        
+        # Define the image transformation pipeline
+        self.transform = transforms.Compose([
+            transforms.RandomHorizontalFlip(),  # Random horizontal flip for augmentation
+            transforms.RandomRotation(10),        # Random rotation (up to 10 degrees)
+            transforms.ToTensor(),                # Convert image to a PyTorch tensor
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],  # Normalize using ImageNet statistics
+                                 std=[0.229, 0.224, 0.225])
+        ])
+
+    def __len__(self) -> int:
+        """
+        Return the total number of samples in the dataset.
+
+        Returns:
+            int: Number of samples.
+        """
         return len(self.data)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         """
-        Retrieves an image and its corresponding label based on the index.
-        
-        Args:
-            idx (int): Index of the image to retrieve.
-        
-        Returns:
-            tuple: (image, label), where image is a transformed tensor and label is an integer.
-        """
-        img_name = self.data.iloc[idx, 0]  # Get image file name from CSV
-        img_path = os.path.join(self.image_dir, img_name + ".jpg")  # Construct full image path
-        label = self.data.iloc[idx, 1]  # Retrieve category label
-        label_encoded = encoder.get(label, -1)  # Convert category label to numerical value, default to -1 if not found
-        
-        # Load image and convert it to RGB format
-        image = Image.open(img_path).convert("RGB")
+        Retrieve an image and its corresponding label given an index.
 
-        # Apply transformations if any are provided
+        Args:
+            idx (int): Index of the sample to retrieve.
+
+        Returns:
+            tuple: A tuple (image, label) where:
+                - image: A transformed image tensor.
+                - label: The corresponding label as an integer.
+        """
+        # Get the image name from the first column of the CSV
+        img_name = self.data.iloc[idx, 0]
+        # Construct the full path to the image file (assuming '.jpg' extension)
+        img_path = os.path.join(self.image_dir, img_name + ".jpg")
+        # Retrieve the label from the second column of the CSV
+        label = self.data.iloc[idx, 1]
+        
+        # Open the image and convert it to RGB format
+        image = Image.open(img_path).convert("RGB")
+        
+        # Apply the transformation pipeline if defined
         if self.transform:
             image = self.transform(image)
 
-        return image, label_encoded
+        return image, label
 
-# Initialize dataset with the given image directory
-IMAGE_DIR = "cleaned_images/"  # Configure this based on your environment or project structure
-dataset = ImageDataset(csv_path, IMAGE_DIR, transform=transform)
-
-# Create a DataLoader to load data in batches
-dataloader = DataLoader(dataset, batch_size=4, shuffle=True)  # Shuffle to improve training
-
-# Usage: Load a single batch and print its shape and labels
-for images, labels in dataloader:
-    print(images.shape, labels)  # Prints batch shape and labels
-    break
+if __name__ == "__main__":
+    # When running this file directly, test the dataset functionality.
+    IMAGE_DIR = "cleaned_images/"  # Directory containing the images
+    dataset = ImageDataset(csv_path, IMAGE_DIR)
+    
+    # Create a DataLoader to load data in batches for testing
+    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
+    
+    # Retrieve and print the shape and labels of one batch
+    for images, labels in dataloader:
+        print("Batch shape:", images.shape, "Labels:", labels)
+        break
