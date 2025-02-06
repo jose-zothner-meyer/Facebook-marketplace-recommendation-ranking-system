@@ -4,11 +4,12 @@
 - [Facebook Marketplace Recommendation \& Ranking System](#facebook-marketplace-recommendation--ranking-system)
   - [Table of Contents](#table-of-contents)
   - [**📌 Project Overview**](#-project-overview)
+  - [File Structure](#file-structure)
   - [**📌 Project Roadmap**](#-project-roadmap)
-    - [**📌 1. Data Collection \& Preprocessing**](#-1-data-collection--preprocessing)
-    - [**📌 2. Feature Extraction**](#-2-feature-extraction)
-    - [**📌 3. Search Index \& Ranking System**](#-3-search-index--ranking-system)
-    - [**📌 4. Real-Time Deployment**](#-4-real-time-deployment)
+    - [\*\* 1. Data Collection \& Preprocessing\*\*](#-1-data-collection--preprocessing)
+    - [\*\* 2. Feature Extraction\*\*](#-2-feature-extraction)
+    - [\*\* 3. Search Index \& Ranking System\*\*](#-3-search-index--ranking-system)
+    - [\*\* 4. Real-Time Deployment\*\*](#-4-real-time-deployment)
   - [**🚀 Technologies \& Tools**](#-technologies--tools)
   - [**📝 Next Steps**](#-next-steps)
   - [Installation](#installation)
@@ -20,16 +21,38 @@
 ---
 
 ## **📌 Project Overview**
-This project implements a **search ranking system** for **Facebook Marketplace** using **multi-modal embeddings**, **transfer learning**, and **vector search indexing**.  
+This project implements an end-to-end pipeline for processing raw product and image data, training a transfer learning model based on a modified ResNet50, extracting image embeddings, and performing similarity search using FAISS. The goal is to enhance the recommendation and ranking system for Facebook Marketplace by leveraging both image and text data.
 
 It aims to improve **product ranking & recommendations** by leveraging **both image & text data** from product listings.
+
+---
+
+## File Structure
+
+- **`feature_extractor_model.py`**  
+  Contains the shared feature extraction model (a modified ResNet50) and the transformation pipeline.
+
+- **`main.py`**  
+  Processes raw data, inspects the dataset, and trains the transfer learning model using the `ResNetTransferLearner`.
+
+- **`a_resnet_transfer_trainer.py`**  
+  Implements the full transfer learning training pipeline (data processing, DataLoader setup, model configuration, training loop, and saving model weights/metrics).
+
+- **`extract_embeddings.py`**  
+  Extracts image embeddings for every valid image in the `cleaned_images` folder and saves them as a JSON file (`image_embeddings.json`).
+
+- **`image_processor.py`**  
+  Processes the first valid image found in the `cleaned_images` folder by applying the training transformations and adding a batch dimension. This prepares the image to be fed to the model and prints the processed tensor's shape.
+
+- **`faiss_search.py`**  
+  Loads saved image embeddings, builds a FAISS index, and performs a similarity search using a query image (automatically selected from `cleaned_images`).
 
 ---
 
 ## **📌 Project Roadmap**
 This project involves multiple stages, including **data preprocessing, feature extraction, model training, and ranking optimization**. Below is a structured implementation plan:
 
-### **📌 1. Data Collection & Preprocessing**
+### ** 1. Data Collection & Preprocessing**
 ✅ **Step 1: Tabular Data Cleaning**
 - Standardize **product listings** (e.g., prices, categories, locations).
 - Extract **text features** from product descriptions.
@@ -46,7 +69,7 @@ This project involves multiple stages, including **data preprocessing, feature e
 
 ---
 
-### **📌 2. Feature Extraction**
+### ** 2. Feature Extraction**
 ✅ **Step 4: Image Embeddings (CNN)**
 - Use a **pre-trained ResNet-50** (or EfficientNet) to extract meaningful **image embeddings**.
 - Apply **transfer learning** by fine-tuning ResNet-50 on Marketplace categories.
@@ -63,7 +86,7 @@ This project involves multiple stages, including **data preprocessing, feature e
 
 ---
 
-### **📌 3. Search Index & Ranking System**
+### ** 3. Search Index & Ranking System**
 ✅ **Step 7: Create the Search Index**
 - Store **product embeddings** in a **vector database** (e.g., **FAISS**).
 - Use **FAISS Approximate Nearest Neighbors (ANN)** for fast retrieval.
@@ -78,7 +101,7 @@ This project involves multiple stages, including **data preprocessing, feature e
 
 ---
 
-### **📌 4. Real-Time Deployment**
+### ** 4. Real-Time Deployment**
 ✅ **Step 10: Deploy as an API**
 - Containerize the **ranking model** using **Docker**.
 - Deploy on **AWS Lambda, GCP, or FastAPI** to serve search queries.
