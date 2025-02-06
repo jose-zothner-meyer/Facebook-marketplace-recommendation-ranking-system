@@ -14,32 +14,36 @@ This module defines the ResNetTransferLearner class, which encapsulates the full
 import os
 import pickle
 import datetime
+from typing import Tuple, List
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchvision import models
+
 from product_labeler import ProductLabeler
 from image_dataset_pytorch import ImageDataset
 
+
 class FineTunedResNet(nn.Module):
-    def __init__(self, num_classes):
+    """
+    FineTunedResNet model for transfer learning.
+    
+    This model:
+      - Loads a pretrained ResNet-50.
+      - Freezes all parameters.
+      - Unfreezes parameters in layer4 and fc for fine-tuning.
+      - Replaces the original fc layer with new classifier layers.
+    """
+    def __init__(self, num_classes: int) -> None:
         """
         Initialize the FineTunedResNet model.
-        
-        This constructor:
-          - Loads a pretrained ResNet-50.
-          - Freezes all parameters.
-          - Unfreezes the last two layers (layer4 and fc) for fine-tuning.
-          - Removes the original fc layer and replaces it with new classifier layers wrapped in a Sequential.
-          - Combines the feature extractor (all layers except the original fc) with the new classifier in one Sequential module.
         
         Args:
             num_classes (int): The number of output classes.
         """
         super(FineTunedResNet, self).__init__()
-        
-        # Load the pretrained ResNet-50 model.
         resnet = models.resnet50(pretrained=True)
         
         # Freeze all parameters.
@@ -52,90 +56,75 @@ class FineTunedResNet(nn.Module):
         for param in resnet.fc.parameters():
             param.requires_grad = True
         
-        # Extract the feature extractor part (all layers except the original fc).
+        # Extract the feature layers.
         self.features = nn.Sequential(*list(resnet.children())[:-1])
         
-        # Define new classifier layers. Here we wrap our additional layers in a Sequential.
+        # Define the new classifier.
         self.classifier = nn.Sequential(
-            nn.AdaptiveAvgPool2d((1, 1)),  # Ensure a fixed-size output.
+            nn.AdaptiveAvgPool2d((1, 1)),
             nn.Flatten(),
             nn.Dropout(0.5),
             nn.Linear(resnet.fc.in_features, num_classes)
         )
         
-        # Combine the feature extractor and new classifier into one Sequential.
+        # Combine features and classifier.
         self.combined_model = nn.Sequential(
             self.features,
             self.classifier
         )
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through the combined model.
+        Forward pass through the model.
         
         Args:
             x (torch.Tensor): Input image tensor.
             
         Returns:
-            torch.Tensor: Output predictions.
+            torch.Tensor: Model predictions.
         """
         return self.combined_model(x)
 
+
 class ResNetTransferLearner:
-    def __init__(self, 
-                 products_csv="data/Cleaned_Products.csv", 
-                 images_csv="data/Images.csv", 
-                 training_csv="data/training_data.csv", 
-                 image_dir="cleaned_images/",
-                 decoder_path="image_decoder.pkl",
-                 batch_size=32,
-                 num_epochs=5,
-                 learning_rate=0.001,
-                 momentum=0.9,
-                 num_workers=4):
-        """
-        Initialize the ResNetTransferLearner with file paths and training hyperparameters.
-        
-        Args:
-            products_csv (str): Path to the products CSV file.
-            images_csv (str): Path to the images CSV file.
-            training_csv (str): Path where the processed training CSV will be saved.
-            image_dir (str): Directory where image files are stored.
-            decoder_path (str): Path to save the decoder mapping.
-            batch_size (int): Batch size for training.
-            num_epochs (int): Number of training epochs.
-            learning_rate (float): Learning rate for the optimizer.
-            momentum (float): Momentum for the SGD optimizer.
-            num_workers (int): Number of worker processes for data loading.
-        """
-        self.products_csv = products_csv
-        self.images_csv = images_csv
-        self.training_csv = training_csv
-        self.image_dir = image_dir
-        self.decoder_path = decoder_path
+    """
+    ResNetTransferLearner encapsulates the full training pipeline for the transfer learning model.
+    
+    It processes data, sets up DataLoaders, configures the model, and trains the model while saving metrics.
+    """
+    def __init__(
+        self,
+        products_csv: str = "data/Cleaned_Products.csv",
+        images_csv: str = "data/Images.csv",
+        training_csv: str = "data/training_data.csv",
+        image_dir: str = "cleaned_images/",
+        decoder_path: str = "image_decoder.pkl",
+        batch_size: int = 32,
+        num_epochs: int = 5,
+        learning_rate: float = 0.001,
+        momentum: float = 0.9,
+        num_workers: int = 4,
+    ) -> None:
+        self.products_csv: str = products_csv
+        self.images_csv: str = images_csv
+        self.training_csv: str = training_csv
+        self.image_dir: str = image_dir
+        self.decoder_path: str = decoder_path
+        self.batch_size: int = batch_size
+        self.num_epochs: int = num_epochs
+        self.learning_rate: float = learning_rate
+        self.momentum: float = momentum
+        self.num_workers: int = num_workers
 
-        self.batch_size = batch_size
-        self.num_epochs = num_epochs
-        self.learning_rate = learning_rate
-        self.momentum = momentum
-        self.num_workers = num_workers
-
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.num_classes = None
-        self.model = None
+        self.device: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.num_classes: int = 0
+        self.model: nn.Module = None  # type: ignore
         self.train_loader = None
         self.val_loader = None
 
-    def process_data(self):
+    def process_data(self) -> None:
         """
-        Process the raw product and image data to create the training CSV file.
-        
-        Uses ProductLabeler to:
-          - Load and process the CSVs.
-          - Extract root categories and assign numeric labels.
-          - Merge image data.
-          - Save the processed data.
-        Also saves the decoder mapping as a pickle file.
+        Process raw product and image data to create the training CSV file and save the decoder mapping.
         """
         print("Processing data using ProductLabeler...")
         product_labeler = ProductLabeler(
@@ -144,65 +133,51 @@ class ResNetTransferLearner:
             output_file=self.training_csv
         )
         product_labeler.process()
-        with open(self.decoder_path, "wb") as f:
-            pickle.dump(product_labeler.decoder, f)
-        print(f"Decoder saved to {self.decoder_path}")
+        with open(self.decoder_path, "wb") as file:
+            pickle.dump(product_labeler.decoder, file)
+        print(f"Decoder mapping saved to {self.decoder_path}")
         self.num_classes = len(product_labeler.encoder)
         print(f"Number of classes: {self.num_classes}")
 
-    def setup_dataloaders(self):
+    def setup_dataloaders(self) -> None:
         """
-        Set up DataLoaders for training and validation.
-        
-        Splits the dataset (loaded via ImageDataset) into:
-          - Training set (70%)
-          - Validation set (15%)
-          - Test set (15% - not used here)
+        Set up DataLoaders for training and validation by splitting the dataset.
         """
         print("Setting up DataLoaders...")
         dataset = ImageDataset(self.training_csv, self.image_dir)
-        total_size = len(dataset)
-        train_size = int(0.7 * total_size)
-        val_size = int(0.15 * total_size)
-        test_size = total_size - train_size - val_size  # Not used in training
+        total_size: int = len(dataset)
+        train_size: int = int(0.7 * total_size)
+        val_size: int = int(0.15 * total_size)
+        test_size: int = total_size - train_size - val_size  # Not used in training
         
         train_dataset, val_dataset, _ = random_split(dataset, [train_size, val_size, test_size])
         self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, 
                                        shuffle=True, num_workers=self.num_workers)
         self.val_loader = DataLoader(val_dataset, batch_size=self.batch_size, 
                                      shuffle=False, num_workers=self.num_workers)
-        print("DataLoaders are set up.")
+        print("DataLoaders setup complete.")
 
-    def setup_model(self):
+    def setup_model(self) -> None:
         """
-        Configure the model using FineTunedResNet.
-        
-        The model is instantiated with the number of classes, moved to the appropriate device,
-        and the final two layers (layer4 and fc) are unfrozen for fine-tuning.
+        Configure the FineTunedResNet model and move it to the appropriate device.
         """
         print("Setting up the FineTunedResNet model...")
         self.model = FineTunedResNet(self.num_classes)
-        self.model = self.model.to(self.device)
-        print("Model is set up and moved to device:", self.device)
+        self.model.to(self.device)
+        print("Model is set up on device:", self.device)
 
-    def train_model(self):
+    def train_model(self) -> None:
         """
         Train the model using a standard training loop with validation.
-        
-        At the end of each epoch:
-          - The model's weights are saved under "model_evaluation/<timestamp>/weights" 
-            with filenames indicating the epoch.
-          - Training and validation losses are saved to a metrics file.
+        Save model weights and training metrics at the end of each epoch.
         """
         print("Starting training...")
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.SGD(filter(lambda p: p.requires_grad, self.model.parameters()),
                               lr=self.learning_rate, momentum=self.momentum)
         
-        # Create folder structure for saving model evaluation outputs.
         base_dir = "model_evaluation"
-        if not os.path.exists(base_dir):
-            os.makedirs(base_dir)
+        os.makedirs(base_dir, exist_ok=True)
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         model_dir = os.path.join(base_dir, f"model_{timestamp}")
         os.makedirs(model_dir, exist_ok=True)
@@ -215,7 +190,7 @@ class ResNetTransferLearner:
         for epoch in range(self.num_epochs):
             print(f"\nEpoch {epoch+1}/{self.num_epochs}")
             self.model.train()
-            running_loss = 0.0
+            running_loss: float = 0.0
             
             for batch_idx, (inputs, labels) in enumerate(self.train_loader):
                 inputs = inputs.to(self.device)
@@ -228,47 +203,46 @@ class ResNetTransferLearner:
                 running_loss += loss.item()
                 print(f"Batch {batch_idx+1}/{len(self.train_loader)} - Loss: {loss.item():.4f}")
             
-            avg_loss = running_loss / len(self.train_loader)
-            print(f"Epoch {epoch+1} Average Training Loss: {avg_loss:.4f}")
+            avg_train_loss: float = running_loss / len(self.train_loader)
+            print(f"Epoch {epoch+1} Average Training Loss: {avg_train_loss:.4f}")
             
             self.model.eval()
-            val_loss = 0.0
+            running_val_loss: float = 0.0
             with torch.no_grad():
                 for inputs, labels in self.val_loader:
                     inputs = inputs.to(self.device)
                     labels = labels.to(self.device)
                     outputs = self.model(inputs)
                     loss = criterion(outputs, labels)
-                    val_loss += loss.item()
-            avg_val_loss = val_loss / len(self.val_loader)
-            print(f"Epoch {epoch+1} - Validation Loss: {avg_val_loss:.4f}")
+                    running_val_loss += loss.item()
+            avg_val_loss: float = running_val_loss / len(self.val_loader)
+            print(f"Epoch {epoch+1} Validation Loss: {avg_val_loss:.4f}")
             
             # Save model weights.
             weights_filename = os.path.join(weights_dir, f"epoch_{epoch+1}.pth")
             torch.save(self.model.state_dict(), weights_filename)
             print(f"Saved model weights to {weights_filename}")
             
-            # Save epoch metrics.
+            # Save training metrics.
             with open(metrics_file, "a") as f_metrics:
-                f_metrics.write(f"{epoch+1},{avg_loss:.4f},{avg_val_loss:.4f}\n")
+                f_metrics.write(f"{epoch+1},{avg_train_loss:.4f},{avg_val_loss:.4f}\n")
         
         print("Training complete.")
 
-    def run(self):
+    def run(self) -> None:
         """
-        Execute the full training pipeline:
-          1. Process data to create the training CSV and save the decoder.
+        Run the full training pipeline:
+          1. Process raw data and create training CSV.
           2. Set up DataLoaders.
-          3. Configure the model (using FineTunedResNet).
-          4. Train the model (saving weights and metrics each epoch).
+          3. Configure the model.
+          4. Train the model.
         """
         self.process_data()
         self.setup_dataloaders()
         self.setup_model()
         self.train_model()
 
-# Once training is complete, if you want to turn your model into a feature extractor, you can remove your additional classifier layers using:
 
-# feature_extractor = torch.nn.Sequential(*list(model.combined_model.children())[:-1])
-
-# This will give you a model that outputs the feature vector for each input image.
+if __name__ == "__main__":
+    learner = ResNetTransferLearner()
+    learner.run()
