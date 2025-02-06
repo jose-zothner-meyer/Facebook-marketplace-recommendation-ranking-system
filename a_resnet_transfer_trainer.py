@@ -1,20 +1,20 @@
 """
-resnet_transfer_trainer.py
+a_resnet_transfer_trainer.py
 
 This module defines the ResNetTransferLearner class, which encapsulates the full training pipeline:
-  1. Process raw product and image data (using ProductLabeler) to generate a training CSV.
-  2. Create encoder/decoder mappings and save the decoder as "image_decoder.pkl".
-  3. Set up DataLoaders by splitting the dataset into training and validation sets.
-  4. Configure a modified pretrained ResNet-50 model (via FineTunedResNet) by freezing all layers,
+  1. Processes raw product and image data (using ProductLabeler) to generate a training CSV.
+  2. Creates encoder/decoder mappings and saves the decoder as "image_decoder.pkl".
+  3. Sets up DataLoaders by splitting the dataset into training and validation sets.
+  4. Configures a modified pretrained ResNet-50 model (via FineTunedResNet) by freezing all layers,
      then unfreezing the last two layers and replacing the classifier.
-  5. Train the model using a standard training loop with validation.
+  5. Trains the model using a standard training loop with validation.
      At the end of every epoch, model weights and metrics are saved.
 """
 
 import os
 import pickle
 import datetime
-from typing import Tuple, List
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -119,8 +119,8 @@ class ResNetTransferLearner:
         self.device: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.num_classes: int = 0
         self.model: nn.Module = None  # type: ignore
-        self.train_loader = None
-        self.val_loader = None
+        self.train_loader: Any = None
+        self.val_loader: Any = None
 
     def process_data(self) -> None:
         """

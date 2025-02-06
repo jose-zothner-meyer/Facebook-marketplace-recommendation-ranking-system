@@ -22,6 +22,7 @@ CSV_PATH: str = "data/training_data.csv"
 def ensure_training_data_exists(csv_path: str) -> None:
     """
     Verify that the training data CSV file exists.
+    
     If the file is not found, print an error message and exit.
     """
     if not os.path.exists(csv_path):
