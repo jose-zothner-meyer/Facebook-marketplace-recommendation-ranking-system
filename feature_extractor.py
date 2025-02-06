@@ -59,3 +59,18 @@ def create_feature_extractor():
 
 if __name__ == "__main__":
     create_feature_extractor()
+
+
+# Feature Extraction Later:
+# When you need to use your feature extractor (for example, with FAISS), you can load it and remove the final classification layer if necessary:
+
+# Example: Loading the feature extractor model for inference.
+feature_extractor = models.resnet50(pretrained=False)
+num_ftrs = feature_extractor.fc.in_features
+feature_extractor = nn.Sequential(
+    *list(feature_extractor.children())[:-1],
+    nn.Flatten(),
+    nn.Linear(num_ftrs, 1000)
+)
+feature_extractor.load_state_dict(torch.load("final_model/image_model.pt"))
+feature_extractor.eval()
