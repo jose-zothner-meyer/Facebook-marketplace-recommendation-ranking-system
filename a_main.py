@@ -13,7 +13,7 @@ import pickle
 from torch.utils.data import DataLoader
 from product_labeler import ProductLabeler
 from image_dataset_pytorch import ImageDataset
-from resnet_transfer_trainer import ResNetTransferLearner
+from b_resnet_transfer_trainer import ResNetTransferLearner
 
 # Define the CSV path where the processed training data will be saved.
 csv_path = "data/training_data.csv"
