@@ -23,7 +23,6 @@
     - [3. Process a Single Image](#3-process-a-single-image)
     - [4. Similarity Search Using FAISS](#4-similarity-search-using-faiss)
   - [Additional Notes](#additional-notes)
-  - [Conclusion](#conclusion)
 
 ---
 
@@ -262,7 +261,3 @@ python faiss_search.py
   The feature extraction model and transformation pipeline are centralized in `feature_extractor_model.py` to avoid duplication.
 
 ---
-
-## Conclusion
-
-This project provides a complete pipeline—from data processing and model training to image embedding extraction and similarity search using FAISS. Follow the installation and usage instructions above to run the entire system and customize it for your needs. If you have any questions or encounter issues, please refer to the documentation in the source code or contact the project maintainers.
