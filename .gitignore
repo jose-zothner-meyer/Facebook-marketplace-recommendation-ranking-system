@@ -175,3 +175,4 @@ fb_key.pem
 images/
 cleaned_images/
 model_evaluation/
+image_embeddings.json

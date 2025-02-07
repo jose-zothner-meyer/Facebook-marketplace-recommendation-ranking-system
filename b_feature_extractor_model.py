@@ -1,5 +1,5 @@
 """
-feature_extractor_model.py
+b_feature_extractor_model.py
 
 This module defines the FeatureExtractionCNN class and the transformation pipeline used for processing images.
 It loads a pretrained ResNet50 model, removes its final classification layer, and adds a new fully connected layer 
