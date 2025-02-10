@@ -30,7 +30,7 @@ from sklearn.model_selection import train_test_split
 import pickle
 from torchvision.models import ResNet50_Weights
 from torch.utils.tensorboard import SummaryWriter
-from a_resnet_transfer_trainer import FineTunedResnet 
+from a_resnet_transfer_trainer import FineTunedResNet
 
 # -------------------------------
 # Dataset Definition
@@ -151,7 +151,7 @@ def run_pipeline():
     model_training = FineTunedResnet()
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.001)
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model_training.parameters()), lr=0.001)
 
     writer = SummaryWriter('resource/tensorboard')
     model_dir, weights_dir = create_model_dir()
