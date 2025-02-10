@@ -2,15 +2,16 @@
 pipeline.py
 
 This file contains the integrated training and feature extraction pipeline.
-It combines data processing, model training, conversion to a feature extraction model,
+It combines data processing, model training (with additional accuracy metrics), model conversion,
 and image embedding extraction into one function: run_pipeline().
 
 Key changes compared to the initial version:
-  - The fc layer of ResNet-50 is replaced directly with a sequential block to avoid applying adaptive pooling twice.
-  - Additional metrics (training and validation accuracy) are computed and logged to TensorBoard as well as saved in a metrics file.
-  - After training, the trained model is converted for feature extraction by re-instantiating the same architecture, loading the trained weights,
-    and then replacing the fc layer with an Identity mapping so that the network outputs raw feature embeddings.
-  - The CSV is read using the "labels" column since ProductLabeler outputs columns "Image" and "labels".
+  - Uses the teacher’s FineTunedResNet (imported from a_resnet_transfer_trainer.py) as the model.
+  - The training loop computes and logs additional metrics (accuracy).
+  - After training, the trained model is converted for feature extraction by replacing its classification head with an Identity mapping.
+  - The CSV is read using the "labels" column (because ProductLabeler outputs columns "Image" and "labels").
+  - The temporary split DataFrames are written to CSV files (since ImageDataset expects a CSV file path).
+  - **Important Fix:** The training and validation loops now expect only two values (images and labels) from the dataset.
   - Final outputs are saved to:
        • Feature extraction model: data/final_model/image_model.pt
        • Image embeddings: data/output/image_embeddings.json
@@ -19,52 +20,19 @@ Key changes compared to the initial version:
 import os
 import pandas as pd
 import time
-from PIL import Image
 import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, models
+from torch.utils.data import DataLoader
+from torchvision import transforms
 from sklearn.model_selection import train_test_split
 import pickle
-from torchvision.models import ResNet50_Weights
 from torch.utils.tensorboard import SummaryWriter
-from a_resnet_transfer_trainer import FineTunedResnet 
 
-# -------------------------------
-# Dataset Definition
-# -------------------------------
-class CustomDataset(Dataset):
-    """
-    Custom dataset to load images and labels from a DataFrame.
-    """
-    def __init__(self, dataframe, root_dir, transform=None, file_extension='.jpg'):
-        self.dataframe = dataframe
-        self.root_dir = root_dir
-        self.transform = transform
-        self.file_extension = file_extension
-
-    def __len__(self):
-        return len(self.dataframe)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # The CSV has an "Image" column that serves as the image identifier.
-        img_id = str(self.dataframe.iloc[idx, 0])
-        img_name = os.path.join(self.root_dir, img_id + self.file_extension)
-        print(f"Loading image: {img_name}")
-        try:
-            image = Image.open(img_name).convert('RGB')
-        except FileNotFoundError as e:
-            print(f"File not found: {img_name}")
-            raise e
-        # The label is stored in the "labels" column.
-        label = self.dataframe.iloc[idx, 1]
-        if self.transform:
-            image = self.transform(image)
-        return image, label, img_id
+# Import the teacher’s FineTunedResNet model and the ImageDataset class.
+from a_resnet_transfer_trainer import FineTunedResNet
+from image_dataset_pytorch import ImageDataset
 
 def create_model_dir(base_dir='data/model_evaluation'):
     """
@@ -76,32 +44,32 @@ def create_model_dir(base_dir='data/model_evaluation'):
     os.makedirs(weights_dir, exist_ok=True)
     return model_dir, weights_dir
 
-# -------------------------------
-# Integrated Pipeline Function
-# -------------------------------
 def run_pipeline():
     """
     Executes the full training and feature extraction pipeline.
     
     Steps:
-      a) Data Processing & Setup: Load the training CSV, create encoder/decoder mappings, and split the dataset.
-      b) Model Training: Train a ResNet-50 with a revised fc layer. Additional metrics (accuracy) are computed and logged.
-      c) Model Conversion: Load the trained weights and replace the fc layer with Identity for feature extraction.
-      d) Embedding Extraction: Extract and save image embeddings to a JSON file.
-    
-    Final outputs:
-      - Feature extraction model is saved to 'data/final_model/image_model.pt'
-      - Image embeddings are saved to 'data/output/image_embeddings.json'
+      a) Data Processing & Setup:
+         - Reads the training CSV (with columns "Image" and "labels").
+         - Creates encoder/decoder mappings.
+         - Splits the dataset (using stratification on "labels") into training, validation, and test sets.
+         - Writes each split to temporary CSV files.
+      b) Model Training:
+         - Instantiates the teacher’s FineTunedResNet model.
+         - Trains the model using a standard training loop while computing and logging additional metrics (accuracy).
+      c) Model Conversion:
+         - Replaces the classification head (new_layers) with an Identity mapping so that the model outputs raw feature embeddings.
+         - Saves the converted model to 'data/final_model/image_model.pt'.
+      d) Embedding Extraction:
+         - Uses the feature extraction model to compute embeddings for images from the training split.
+         - Saves the embeddings as a JSON file in 'data/output/image_embeddings.json'.
     """
     # a) Data Processing & Setup
     csv_path = 'data/training_data.csv'
-    # Read the CSV; note that the CSV contains columns "Image" and "labels"
     dataframe = pd.read_csv(csv_path, dtype={'labels': int})
     
-    # --- Use the "labels" column (not "category_label")
+    # Use the "labels" column (not "category_label")
     unique_labels = dataframe['labels'].unique()
-    # --------------------------------------------------------------
-    
     label_encoder = {label: idx for idx, label in enumerate(unique_labels)}
     label_decoder = {idx: label for label, idx in label_encoder.items()}
 
@@ -109,12 +77,17 @@ def run_pipeline():
         pickle.dump(label_decoder, f)
     print("Decoder mapping saved to image_decoder.pkl")
 
-    # Split the dataset using stratification on the labels.
-    df_training, df_temp = train_test_split(
-        dataframe, test_size=0.4, stratify=dataframe['labels'])
-    df_validation, df_test = train_test_split(
-        df_temp, test_size=0.5, stratify=df_temp['labels']
-    )
+    # Split the DataFrame using stratification on "labels"
+    df_training, df_temp = train_test_split(dataframe, test_size=0.4, stratify=dataframe['labels'])
+    df_validation, df_test = train_test_split(df_temp, test_size=0.5, stratify=df_temp['labels'])
+
+    # Write temporary CSV files (ImageDataset expects a CSV file path)
+    temp_train_csv = 'data/temp_train.csv'
+    temp_val_csv = 'data/temp_val.csv'
+    temp_test_csv = 'data/temp_test.csv'
+    df_training.to_csv(temp_train_csv, index=False)
+    df_validation.to_csv(temp_val_csv, index=False)
+    df_test.to_csv(temp_test_csv, index=False)
 
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -122,36 +95,22 @@ def run_pipeline():
                              [0.229, 0.224, 0.225])
     ])
 
-    train_dataset = CustomDataset(
-        dataframe=df_training,
-        root_dir='cleaned_images/',
-        transform=transform,
-        file_extension='.jpg'
-    )
-    validation_dataset = CustomDataset(
-        dataframe=df_validation,
-        root_dir='cleaned_images/',
-        transform=transform,
-        file_extension='.jpg'
-    )
-    test_dataset = CustomDataset(
-        dataframe=df_test,
-        root_dir='cleaned_images/',
-        transform=transform,
-        file_extension='.jpg'
-    )
+    # Create datasets from the temporary CSV files.
+    train_dataset = ImageDataset(temp_train_csv, 'cleaned_images/')
+    validation_dataset = ImageDataset(temp_val_csv, 'cleaned_images/')
+    test_dataset = ImageDataset(temp_test_csv, 'cleaned_images/')
 
     train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     validation_dataloader = DataLoader(validation_dataset, batch_size=32, shuffle=False)
     test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
-    # b) Model Setup & Training
-    
-    # Load the pre-trained ResNet-50 model.
-    model_training = FineTunedResnet()
+    # b) Model Training
+    model_training = FineTunedResNet(len(label_encoder))
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model_training.to(device)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.001)
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model_training.parameters()), lr=0.001)
 
     writer = SummaryWriter('resource/tensorboard')
     model_dir, weights_dir = create_model_dir()
@@ -164,7 +123,10 @@ def run_pipeline():
             train_correct = 0
             train_total = 0
 
-            for i, (images, labels, image_ids) in enumerate(train_dataloader):
+            # Note: Now we unpack only (images, labels) because ImageDataset returns two values.
+            for i, (images, labels) in enumerate(train_dataloader):
+                images = images.to(device)
+                labels = labels.to(device)
                 optimizer.zero_grad()
                 outputs = model(images)
                 loss = criterion(outputs, labels)
@@ -180,9 +142,7 @@ def run_pipeline():
                 train_total += labels.size(0)
 
                 if i % 10 == 9:
-                    writer.add_scalar('training loss',
-                                      running_loss / 10,
-                                      epoch * len(train_dataloader) + i)
+                    writer.add_scalar('training loss', running_loss / 10, epoch * len(train_dataloader) + i)
                     running_loss = 0.0
 
             avg_train_loss = total_loss / len(train_dataloader)
@@ -196,7 +156,9 @@ def run_pipeline():
             val_correct = 0
             val_total = 0
             with torch.no_grad():
-                for images, labels, _ in validation_dataloader:
+                for images, labels in validation_dataloader:
+                    images = images.to(device)
+                    labels = labels.to(device)
                     outputs = model(images)
                     loss = criterion(outputs, labels)
                     val_loss += loss.item()
@@ -208,43 +170,47 @@ def run_pipeline():
             writer.add_scalar('validation loss', avg_val_loss, epoch)
             writer.add_scalar('validation accuracy', val_accuracy, epoch)
 
-            print(f'Epoch [{epoch + 1}/{epochs}], '
-                  f'Avg Train Loss: {avg_train_loss:.4f}, Train Accuracy: {train_accuracy:.4f}, '
-                  f'Validation Loss: {avg_val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}')
+            print(f'Epoch [{epoch + 1}/{epochs}], Avg Train Loss: {avg_train_loss:.4f}, '
+                  f'Train Accuracy: {train_accuracy:.4f}, Validation Loss: {avg_val_loss:.4f}, '
+                  f'Validation Accuracy: {val_accuracy:.4f}')
 
             weights_path = os.path.join(weights_dir, f'epoch_{epoch + 1}.pth')
             torch.save(model.state_dict(), weights_path)
 
             metrics_path = os.path.join(model_dir, 'metrics.txt')
             with open(metrics_path, 'a') as f:
-                f.write(f'Epoch {epoch + 1}, Avg Train Loss: {avg_train_loss:.4f}, Train Accuracy: {train_accuracy:.4f}, '
-                        f'Validation Loss: {avg_val_loss:.4f}, Validation Accuracy: {val_accuracy:.4f}\n')
+                f.write(f'Epoch {epoch + 1}, Avg Train Loss: {avg_train_loss:.4f}, '
+                        f'Train Accuracy: {train_accuracy:.4f}, Validation Loss: {avg_val_loss:.4f}, '
+                        f'Validation Accuracy: {val_accuracy:.4f}\n')
 
         writer.flush()
 
-    train(model, 5)
+    train(model_training, epochs=5)
     writer.close()
-
 '''
-    # c) Convert and Save Feature Extraction Model
+    # c) Model Conversion for Feature Extraction
+    # According to the teacher’s version, FineTunedResNet builds a combined model:
+    #    self.combined_model = nn.Sequential(self.model, self.new_layers)
+    # To convert the model for feature extraction, we replace the new_layers module with Identity.
+    model_training.new_layers = nn.Identity()
     final_model_dir = 'data/final_model'
     os.makedirs(final_model_dir, exist_ok=True)
-    # IMPORTANT: Instantiate the model with the same fc architecture as used during training.
-    model = FineTunedResnet()
-    model = nn.Sequential(*list(model.children())[:-1])  # Remove the last fc layer
-    saved_weights_path = os.path.join(weights_dir, 'epoch_5.pth') # LOOK AT THE FILEPATH
-    model.load_state_dict(torch.load(saved_weights_path))
+    final_model_path = os.path.join(final_model_dir, 'image_model.pt')
+    torch.save(model_training.state_dict(), final_model_path)
+    print(f'Feature extraction model saved at {final_model_path}')
 
-    trained_model_path = os.path.join(weights_dir, 'epoch_10.pth')
-    feature_extractor_model.load_state_dict(torch.load(trained_model_path))
-
-    # d) Extract & Save Image Embeddings
+    # d) Embedding Extraction
     image_embeddings = {}
+    model_training.eval()
     with torch.no_grad():
-        for images, _, image_ids in DataLoader(train_dataset, batch_size=32, shuffle=False):
-            embeddings = feature_extractor_model(images)
-            for img_id, embedding in zip(image_ids, embeddings):
-                image_embeddings[img_id] = embedding.tolist()
+        # For extraction, we also unpack two values from the dataloader.
+        for images, labels in DataLoader(train_dataset, batch_size=32, shuffle=False):
+            images = images.to(device)
+            embeddings = model_training(images)
+            # Use the image ID as key is not possible because our dataset no longer returns it.
+            # Instead, we use the index as the key.
+            for i, embedding in enumerate(embeddings):
+                image_embeddings[str(i)] = embedding.cpu().tolist()
 
     output_dir = 'data/output'
     os.makedirs(output_dir, exist_ok=True)
@@ -253,7 +219,5 @@ def run_pipeline():
         json.dump(image_embeddings, f)
     print(f'Image embeddings have been successfully saved to {embeddings_path}')
 '''
-
-# Allow running the pipeline directly.
 if __name__ == "__main__":
     run_pipeline()
