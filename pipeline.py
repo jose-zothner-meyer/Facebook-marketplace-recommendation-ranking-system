@@ -148,7 +148,7 @@ def run_pipeline():
     # b) Model Setup & Training
     
     # Load the pre-trained ResNet-50 model.
-    model_training = FineTunedResnet()
+    model_training = FineTunedResNet()
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model_training.parameters()), lr=0.001)
@@ -222,7 +222,7 @@ def run_pipeline():
 
         writer.flush()
 
-    train(model, 5)
+    train(model_training, 5)
     writer.close()
 
 '''
