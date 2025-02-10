@@ -1,194 +1,129 @@
 """
-c_faiss_search.py
+faiss_search.py
 
-This script loads a dictionary of image embeddings from a JSON file,
-builds a FAISS index for vector search, and performs a search for similar images.
-
-Requirements:
-  - The JSON file "image_embeddings.json" must exist and contain a dictionary
-    mapping image IDs to their embedding vectors.
-  - A query image is automatically selected from the "cleaned_images" folder.
-  - The feature extraction model weights are loaded from "final_model/image_model.pt" if available.
-
-Usage:
-    python c_faiss_search.py
+This script creates a FAISS search index using image embeddings and performs vector search to find similar images.
+Key differences and integrations:
+  - It loads image embeddings from 'data/output/image_embeddings.json' (produced by the integrated pipeline).
+  - It loads the feature extraction model from 'data/final_model/image_model.pt'.
+  - Inline comments explain each step.
 """
 
 import os
+import sys
 import json
-from typing import List, Tuple
-
+import faiss
 import numpy as np
-import faiss  # FAISS is used for efficient similarity search (install via pip install faiss-cpu or faiss-gpu)
-import torch
 from PIL import Image
+import torch
+from torchvision import models, transforms
+from torchvision.models import ResNet50_Weights
 
-# Import the feature extraction model and transformation pipeline.
-from b_feature_extractor_model import FeatureExtractionCNN, TRANSFORM_PIPELINE
+# Function to extract features from a single image using the provided model and transform.
+def extract_features(image_path, model, transform):
+    try:
+        image = Image.open(image_path).convert('RGB')
+        # Add batch dimension.
+        image = transform(image).unsqueeze(0)
+        with torch.no_grad():
+            features = model(image)
+        return features.squeeze().numpy()
+    except Exception as e:
+        print(f"Error extracting features from image {image_path}: {e}")
+        return None
 
+# Step 1: Load image embeddings from the JSON file.
+def load_image_embeddings(embeddings_file):
+    try:
+        with open(embeddings_file, 'r') as f:
+            image_embeddings = json.load(f)
+        return image_embeddings
+    except Exception as e:
+        print(f"Error loading image embeddings from {embeddings_file}: {e}")
+        sys.exit(1)
 
-def process_image(image_path: str) -> torch.Tensor:
-    """
-    Load an image from the given path, apply the predefined transformation pipeline,
-    and add a batch dimension to make it compatible with model input.
+# Step 2: Create a FAISS index and add the image embeddings.
+def create_faiss_index(image_embeddings):
+    try:
+        # Determine embedding dimension from one of the embeddings.
+        embedding_dim = len(next(iter(image_embeddings.values())))
+        embeddings = np.array(list(image_embeddings.values())).astype('float32')
+        index = faiss.IndexFlatL2(embedding_dim)
+        index.add(embeddings)
+        return index, list(image_embeddings.keys())
+    except Exception as e:
+        print(f"Error creating FAISS index: {e}")
+        sys.exit(1)
 
-    Args:
-        image_path (str): Path to the image file.
+# Step 3: Load the feature extraction model and define the necessary transformations.
+def load_feature_extractor(model_path):
+    try:
+        weights = ResNet50_Weights.IMAGENET1K_V1
+        feature_extractor_model = models.resnet50(weights=weights)
+        num_features = feature_extractor_model.fc.in_features
+        feature_extractor_model.fc = torch.nn.Linear(num_features, 1000)
+        feature_extractor_model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+        # Convert model to feature extractor by replacing fc with Identity.
+        feature_extractor_model.fc = torch.nn.Identity()
+        feature_extractor_model.eval()
+        return feature_extractor_model
+    except Exception as e:
+        print(f"Error loading feature extractor model from {model_path}: {e}")
+        sys.exit(1)
 
-    Returns:
-        torch.Tensor: A processed image tensor with shape (1, 3, 256, 256).
-                      The batch dimension is added using unsqueeze(0).
-    """
-    # Open the image file and convert it to RGB mode.
-    image = Image.open(image_path).convert("RGB")
-    # Apply the transformation pipeline (resizing, converting to tensor, normalization, etc.).
-    img_tensor = TRANSFORM_PIPELINE(image)
-    # Add an extra dimension at position 0 to create a batch of size 1.
-    return img_tensor.unsqueeze(0)
+# Define the transformation pipeline.
+def get_transform():
+    return transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
 
+# Step 4: Perform vector search to find similar images.
+def find_similar_images(image_path, model, transform, index, image_ids, k=5):
+    try:
+        query_embedding = extract_features(image_path, model, transform)
+        if query_embedding is None:
+            print("Error extracting features from query image.")
+            return []
+        distances, indices = index.search(np.array([query_embedding]), k)
+        similar_image_ids = [image_ids[idx] for idx in indices[0]]
+        return similar_image_ids
+    except Exception as e:
+        print(f"Error performing FAISS search: {e}")
+        return []
 
-def load_embeddings(json_file: str) -> Tuple[List[str], np.ndarray]:
-    """
-    Load image embeddings from a JSON file and convert them to a contiguous NumPy array.
+def main():
+    # Set query image path (for testing, you can modify this path).
+    query_image_path = 'data/test_img/tv1.jpeg'
+    if not os.path.exists(query_image_path):
+        print(f"Error: Image file '{query_image_path}' does not exist.")
+        sys.exit(1)
 
-    The JSON file is expected to contain a dictionary where:
-      - The keys are image IDs (typically filenames without extension).
-      - The values are embedding vectors (lists of floats).
+    # File paths for embeddings and model.
+    embeddings_file = 'data/output/image_embeddings.json'
+    model_path = 'data/final_model/image_model.pt'
 
-    Args:
-        json_file (str): Path to the JSON file containing the embeddings.
+    # Load components.
+    image_embeddings = load_image_embeddings(embeddings_file)
+    index, image_ids = create_faiss_index(image_embeddings)
+    feature_extractor_model = load_feature_extractor(model_path)
+    transform = get_transform()
 
-    Returns:
-        Tuple[List[str], np.ndarray]:
-            - A list of image IDs.
-            - A NumPy array of shape (n_images, d) with dtype np.float32 containing all embeddings.
-    """
-    # Open and load the JSON file.
-    with open(json_file, "r") as file:
-        data = json.load(file)
-    # Extract image IDs.
-    image_ids = list(data.keys())
-    # Convert each embedding list into a NumPy array with float32 data type.
-    embeddings = [np.array(data[img_id], dtype=np.float32) for img_id in image_ids]
-    # Stack embeddings into a single 2D NumPy array.
-    embeddings_array = np.vstack(embeddings)
-    # Ensure the array is stored in contiguous memory, which is required by FAISS.
-    embeddings_array = np.ascontiguousarray(embeddings_array)
-    return image_ids, embeddings_array
+    # Find similar images.
+    similar_images = find_similar_images(
+        query_image_path,
+        feature_extractor_model,
+        transform,
+        index,
+        image_ids,
+        k=5
+    )
 
+    print(f"Similar images to '{query_image_path}': {similar_images}")
 
-def build_faiss_index(embeddings: np.ndarray) -> faiss.Index:
-    """
-    Build a FAISS index using L2 (Euclidean) distance from the provided embeddings.
-
-    Args:
-        embeddings (np.ndarray): A 2D NumPy array of shape (n, d), where n is the number of embeddings
-                                 and d is their dimensionality (should match the feature extractor output, e.g., 1000).
-
-    Returns:
-        faiss.Index: A FAISS index built using the IndexFlatL2 algorithm, with embeddings added.
-    """
-    # Get the dimensionality (d) of the embeddings.
-    dimension = embeddings.shape[1]
-    # Create a FAISS index that uses L2 distance.
-    index = faiss.IndexFlatL2(dimension)
-    # Add the embeddings to the index.
-    index.add(embeddings)
-    return index
-
-
-def search_faiss(index: faiss.Index, query_embedding: np.ndarray, k: int = 5) -> Tuple[List[float], List[int]]:
-    """
-    Search the FAISS index for the k nearest neighbors of the query embedding.
-
-    Args:
-        index (faiss.Index): The FAISS index built on the embeddings.
-        query_embedding (np.ndarray): A 1D NumPy array representing the query embedding (of dimension d).
-        k (int): The number of nearest neighbors to retrieve (default is 5).
-
-    Returns:
-        Tuple[List[float], List[int]]:
-            - A list of distances to the k nearest neighbors.
-            - A list of indices corresponding to the k nearest neighbors in the embeddings array.
-    """
-    # Expand dimensions of query_embedding to shape (1, d) for the search.
-    query = np.expand_dims(query_embedding, axis=0)
-    # Perform the search on the index.
-    distances, indices = index.search(query, k)
-    # Return the distances and indices as lists.
-    return distances[0].tolist(), indices[0].tolist()
-
-
-def main() -> None:
-    """
-    Main function to perform a FAISS search for similar images.
-
-    The function performs the following steps:
-      1. Loads image embeddings from "image_embeddings.json" and prints the number of images.
-      2. Builds a FAISS index from the embeddings.
-      3. Selects a query image from the "cleaned_images" folder.
-      4. Processes the query image and extracts its embedding using the feature extraction model.
-      5. Performs a search on the FAISS index to find the top k nearest neighbors.
-      6. Prints the image IDs and distances for the top k similar images.
-    """
-    json_file: str = "image_embeddings.json"
-    if not os.path.exists(json_file):
-        print(f"Embeddings file {json_file} not found.")
-        return
-
-    # Load embeddings from JSON file.
-    image_ids, embeddings = load_embeddings(json_file)
-    print(f"Loaded embeddings for {len(image_ids)} images.")
-
-    # Build a FAISS index using the loaded embeddings.
-    index = build_faiss_index(embeddings)
-    print("FAISS index built successfully.")
-
-    # Specify the folder containing images.
-    image_folder: str = "cleaned_images"
-    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
-    # List all valid image files in the folder.
-    image_files = sorted([f for f in os.listdir(image_folder) if f.lower().endswith(valid_extensions)])
-    if not image_files:
-        print(f"No valid images found in '{image_folder}'.")
-        return
-
-    # Select a query image (e.g., the first image in the sorted list).
-    query_image_filename = image_files[0]
-    query_image_path = os.path.join(image_folder, query_image_filename)
-    print(f"Using query image: {query_image_filename}")
-
-    # Process the query image to prepare it for the model.
-    img_tensor = process_image(query_image_path)
-    
-    # Build the feature extraction model using FeatureExtractionCNN.
-    model = FeatureExtractionCNN()
-    model_path: str = "final_model/image_model.pt"
-    # Load the saved model weights if available.
-    if os.path.exists(model_path):
-        model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu")))
-        print("Loaded model weights for query image extraction.")
-    else:
-        print("Model weights not found; using default parameters.")
-    model.eval()  # Set the model to evaluation mode.
-    
-    # Extract the embedding for the query image.
-    with torch.no_grad():
-        query_embedding = model(img_tensor).squeeze(0).numpy()
-    
-    # Ensure that the query embedding is contiguous and of type float32.
-    if not query_embedding.flags['C_CONTIGUOUS']:
-        query_embedding = np.ascontiguousarray(query_embedding)
-    query_embedding = query_embedding.astype(np.float32)
-    print(f"Query embedding shape: {query_embedding.shape}")
-
-    # Search the FAISS index for the top k similar images.
-    k: int = 5
-    distances, indices = search_faiss(index, query_embedding, k)
-    print(f"Top {k} similar images:")
-    for dist, idx in zip(distances, indices):
-        print(f"Image ID: {image_ids[idx]}, Distance: {dist:.4f}")
-
+    # Clean up model from memory.
+    del feature_extractor_model
+    torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     main()

@@ -2,10 +2,14 @@
 main.py
 
 This script is the main entry point for the project. It performs the following tasks:
-  1. Processes the raw product and image data using ProductLabeler to generate a training CSV.
-  2. Inspects the generated dataset (prints encoder/decoder mappings, a sample batch, total sample count, and an example sample).
-  3. Instantiates and runs the full transfer learning pipeline using ResNetTransferLearner.
-  4. Loads and prints the decoder mapping (numeric label -> original category) for future inference.
+  1. Processes raw product and image data using ProductLabeler to generate a training CSV.
+  2. Inspects the generated dataset (prints encoder/decoder mappings, a sample batch, total sample count, and a sample).
+  3. Runs the full integrated transfer learning pipeline by calling run_pipeline() from pipeline.py.
+  4. (Optional) You can monitor TensorBoard logs from the integrated pipeline.
+
+Key differences from the initial version:
+  - Instead of only using a legacy trainer, this file now calls run_pipeline() from pipeline.py,
+    which executes the entire process (data processing, training with additional metrics, model conversion, and embedding extraction).
 """
 
 import os
@@ -14,40 +18,39 @@ from torch.utils.data import DataLoader
 
 from product_labeler import ProductLabeler
 from image_dataset_pytorch import ImageDataset
+# Legacy trainer is still available if needed.
 from a_resnet_transfer_trainer import ResNetTransferLearner
+# Import the integrated pipeline function.
+from pipeline import run_pipeline
 
 CSV_PATH: str = "data/training_data.csv"
-
 
 def ensure_training_data_exists(csv_path: str) -> None:
     """
     Verify that the training data CSV file exists.
-    
-    If the file is not found, print an error message and exit.
     """
     if not os.path.exists(csv_path):
         print("❌ ERROR: training_data.csv was not found. Please run the data processing pipeline first.")
         exit(1)
 
-
 def inspect_dataset() -> None:
     """
-    Process the product and image data to generate the training CSV file, then load and inspect the dataset.
+    Process product and image data to generate the training CSV, then load and inspect the dataset.
     
-    Steps performed:
-      1. Run ProductLabeler to create the CSV file.
-      2. Ensure that the CSV exists.
-      3. Retrieve and print the encoder/decoder mappings.
-      4. Create an ImageDataset and a DataLoader.
-      5. Load a single batch and print its image tensor shape and labels.
-      6. Print the total number of samples and a sample from index 111.
+    Steps:
+      1. Run ProductLabeler to create the CSV.
+      2. Verify the CSV exists.
+      3. Retrieve and print encoder/decoder mappings.
+      4. Create an ImageDataset and DataLoader.
+      5. Load and print one batch (image shape and labels).
+      6. Print total sample count and a sample from index 111.
     """
     product_labeler = ProductLabeler(
         products_file="data/Cleaned_Products.csv",
         images_file="data/Images.csv",
         output_file=CSV_PATH
     )
-    product_labeler.process()
+    product_labeler.process()  # Process and generate training CSV
     ensure_training_data_exists(CSV_PATH)
 
     encoder = product_labeler.encoder
@@ -70,41 +73,18 @@ def inspect_dataset() -> None:
     except IndexError:
         print("Index 111 is out of range for the dataset.")
 
-
-def train_model() -> None:
-    """
-    Instantiate the transfer learning pipeline using ResNetTransferLearner and run the training.
-    
-    After training, load and print the decoder mapping (numeric label -> original category) for future inference.
-    """
-    trainer = ResNetTransferLearner()
-    trainer.run()
-    ensure_training_data_exists(CSV_PATH)
-    decoder_path: str = "image_decoder.pkl"
-    if os.path.exists(decoder_path):
-        try:
-            with open(decoder_path, "rb") as file:
-                decoder = pickle.load(file)
-            print("\nDecoder mapping (Numeric Label -> Category):")
-            for key, value in decoder.items():
-                print(f"{key} -> {value}")
-        except Exception as error:
-            print("Error loading decoder mapping:", error)
-    else:
-        print("Decoder mapping file not found.")
-
-
 def main() -> None:
     """
-    Main function to execute the data processing pipeline, inspect the dataset,
-    and then train the model using transfer learning.
+    Main function to execute the complete project pipeline.
+    
+    It first inspects the dataset (using ProductLabeler) and then runs the integrated pipeline (via run_pipeline())
+    which includes training (with additional metrics), model conversion, and embedding extraction.
     """
     print("=== Dataset Inspection ===")
     inspect_dataset()
     
-    print("\n=== Model Training ===")
-    train_model()
-
+    print("\n=== Running Full Transfer Learning Pipeline ===")
+    run_pipeline()  # Run the integrated pipeline
 
 if __name__ == "__main__":
     main()

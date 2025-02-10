@@ -2,12 +2,14 @@
 clean_images.py
 
 This script processes images in the 'images/' folder by:
-1. Resizing all images while maintaining aspect ratio, padding to 512x512 pixels.
-2. Converting all images to RGB format (ensuring consistency in channels).
-3. Saving the cleaned images into a new folder named 'cleaned_images/'.
+  1. Resizing images while maintaining aspect ratio.
+  2. Adding padding to reach a target size.
+  3. Converting images to RGB format.
+  4. Saving the processed images to the 'cleaned_images/' folder.
 
-This ensures that all images are consistent in format and dimensions, making them
-suitable for machine learning models and further processing.
+Key differences from the initial version:
+  - Uses a helper function to maintain aspect ratio and pad the image.
+  - Default target size is set (adjustable via the final_size parameter).
 """
 
 import os
@@ -16,21 +18,22 @@ from typing import Tuple
 
 def resize_image(final_size: int, im: Image.Image) -> Image.Image:
     """
-    Resizes an image while maintaining aspect ratio and adding padding to match the target size.
-
+    Resize an image while maintaining aspect ratio and add padding to match the target size.
+    
     Args:
-        final_size (int): The target size for both width and height (e.g., 512 for 512x512).
+        final_size (int): Target size for both width and height.
         im (Image.Image): The original image.
-
+        
     Returns:
         Image.Image: The resized and padded image.
     """
-    size = im.size  # (width, height)
-    ratio = float(final_size) / max(size)  # Scale factor to fit largest dimension
-    new_image_size = tuple([int(x * ratio) for x in size])  # Maintain aspect ratio
+    size = im.size  # Original (width, height)
+    ratio = float(final_size) / max(size)  # Scale factor based on the largest dimension.
+    new_image_size = tuple([int(x * ratio) for x in size])  # New size maintaining aspect ratio.
 
-    im = im.resize(new_image_size, Image.LANCZOS)  # Replaced ANTIALIAS with LANCZOS
-    new_im = Image.new("RGB", (final_size, final_size), (0, 0, 0))  # Black background
+    im = im.resize(new_image_size, Image.LANCZOS)  # Resize with high-quality filter.
+    new_im = Image.new("RGB", (final_size, final_size), (0, 0, 0))  # Create a black background.
+    # Center the resized image on the new background.
     new_im.paste(im, ((final_size - new_image_size[0]) // 2, (final_size - new_image_size[1]) // 2))
 
     return new_im
@@ -38,51 +41,44 @@ def resize_image(final_size: int, im: Image.Image) -> Image.Image:
 def clean_image_data(
     input_folder: str = "images",
     output_folder: str = "cleaned_images",
-    final_size: int = 256
+    final_size: int = 256  # Adjust this value as needed.
 ) -> None:
     """
-    Cleans an image dataset by resizing all images while maintaining aspect ratio and padding.
-
+    Process images by resizing (with padding) and converting to RGB, then save them to a new folder.
+    
     Args:
-        input_folder (str, optional): Path to the folder containing the original images. Defaults to 'images'.
-        output_folder (str, optional): Path where cleaned images should be saved. Defaults to 'cleaned_images'.
-        final_size (int, optional): The target size for images (width and height). Defaults to 512.
-
-    Returns:
-        None. The cleaned images are saved in the specified output folder.
+        input_folder (str): Directory containing the original images.
+        output_folder (str): Directory to save cleaned images.
+        final_size (int): Target size for the images.
     """
-    # Ensure the output folder exists
+    # Ensure the output folder exists.
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    # Process each image in the input folder
+    # Process each file in the input folder.
     for filename in os.listdir(input_folder):
         file_path = os.path.join(input_folder, filename)
 
-        # Skip hidden/system files or non-image files
+        # Skip hidden files or non-image files.
         if filename.startswith('.') or not file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
             continue
 
         try:
-            # Open the image
             with Image.open(file_path) as img:
-                # Convert to RGB format if not already
+                # Convert image to RGB.
                 if img.mode != "RGB":
                     img = img.convert("RGB")
 
-                # Resize and pad the image
+                # Resize and pad the image.
                 new_im = resize_image(final_size, img)
 
-                # Construct output file path (keep original file name)
+                # Save the processed image in the output folder.
                 output_file_path = os.path.join(output_folder, filename)
-
-                # Save cleaned image
                 new_im.save(output_file_path)
-
                 print(f"Saved cleaned image to: {output_file_path}")
         except Exception as e:
             print(f"Skipping file '{file_path}' due to error: {e}")
 
 if __name__ == "__main__":
-    # Run the cleaning process for all images in 'images/' and save to 'cleaned_images/'
+    # Run the cleaning process.
     clean_image_data()
