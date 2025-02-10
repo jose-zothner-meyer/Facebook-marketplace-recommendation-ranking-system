@@ -30,6 +30,7 @@ from sklearn.model_selection import train_test_split
 import pickle
 from torchvision.models import ResNet50_Weights
 from torch.utils.tensorboard import SummaryWriter
+from a_resnet_transfer_trainer import FineTunedResnet 
 
 # -------------------------------
 # Dataset Definition
@@ -145,23 +146,9 @@ def run_pipeline():
     test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
     # b) Model Setup & Training
-    weights = ResNet50_Weights.IMAGENET1K_V1
-    model = models.resnet50(weights=weights)
-    num_features = model.fc.in_features
-    # Replace the fc layer with a sequential block matching the training architecture.
-    model.fc = nn.Sequential(
-        nn.Linear(num_features, 1000),
-        nn.ReLU(),
-        nn.Linear(1000, len(label_encoder))
-    )
-
-    # Freeze all parameters first; then unfreeze layer4 and fc.
-    for param in model.parameters():
-        param.requires_grad = False
-    for param in model.layer4.parameters():
-        param.requires_grad = True
-    for param in model.fc.parameters():
-        param.requires_grad = True
+    
+    # Load the pre-trained ResNet-50 model.
+    model_training = FineTunedResnet()
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.001)
@@ -235,30 +222,21 @@ def run_pipeline():
 
         writer.flush()
 
-    train(model, 10)
+    train(model, 5)
     writer.close()
 
+'''
     # c) Convert and Save Feature Extraction Model
     final_model_dir = 'data/final_model'
     os.makedirs(final_model_dir, exist_ok=True)
     # IMPORTANT: Instantiate the model with the same fc architecture as used during training.
-    feature_extractor_model = models.resnet50(weights=weights)
-    num_features = feature_extractor_model.fc.in_features
-    feature_extractor_model.fc = nn.Sequential(
-        nn.Linear(num_features, 1000),
-        nn.ReLU(),
-        nn.Linear(1000, len(label_encoder))
-    )
+    model = FineTunedResnet()
+    model = nn.Sequential(*list(model.children())[:-1])  # Remove the last fc layer
+    saved_weights_path = os.path.join(weights_dir, 'epoch_5.pth') # LOOK AT THE FILEPATH
+    model.load_state_dict(torch.load(saved_weights_path))
 
     trained_model_path = os.path.join(weights_dir, 'epoch_10.pth')
     feature_extractor_model.load_state_dict(torch.load(trained_model_path))
-
-    # Replace the fc layer with Identity so that the model outputs raw feature embeddings.
-    feature_extractor_model.fc = nn.Identity()
-
-    final_model_path = os.path.join(final_model_dir, 'image_model.pt')
-    torch.save(feature_extractor_model.state_dict(), final_model_path)
-    print(f'Feature extraction model saved at {final_model_path}')
 
     # d) Extract & Save Image Embeddings
     image_embeddings = {}
@@ -274,6 +252,7 @@ def run_pipeline():
     with open(embeddings_path, 'w') as f:
         json.dump(image_embeddings, f)
     print(f'Image embeddings have been successfully saved to {embeddings_path}')
+'''
 
 # Allow running the pipeline directly.
 if __name__ == "__main__":

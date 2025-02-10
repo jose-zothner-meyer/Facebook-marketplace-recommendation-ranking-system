@@ -207,7 +207,7 @@ class ResNetTransferLearner:
             torch.save(self.model.state_dict(), weights_filename)
             print(f"Saved model weights to {weights_filename}")
             
-            with open(metrics_file, "w") as f_metrics:
+            with open(metrics_file, "a") as f_metrics:
                 f_metrics.write(f"{epoch+1},{avg_train_loss:.4f},{avg_val_loss:.4f}\n")
         
         print("Training complete.")
