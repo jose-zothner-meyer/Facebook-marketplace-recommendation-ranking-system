@@ -65,7 +65,8 @@ def run_pipeline():
          - Uses the feature extraction model to compute embeddings for images from the training split.
          - Saves the embeddings as a JSON file in 'data/output/image_embeddings.json'.
     """
-    # a) Data Processing & Setup
+
+# a) Data Processing & Setup
     csv_path = 'data/training_data.csv'
     dataframe = pd.read_csv(csv_path, dtype={'labels': int})
     
@@ -129,9 +130,10 @@ def run_pipeline():
             train_total = 0
 
             # Unpack only two values: (images, labels)
-            for i, (images, labels) in enumerate(train_dataloader):
+            for i, (images, labels, img_id) in enumerate(train_dataloader):
                 images = images.to(device)
                 labels = labels.to(device)
+                img_id = img_id.to(device)
                 optimizer.zero_grad()
                 outputs = model(images)
                 loss = criterion(outputs, labels)
@@ -161,9 +163,10 @@ def run_pipeline():
             val_correct = 0
             val_total = 0
             with torch.no_grad():
-                for images, labels in validation_dataloader:
+                for images, labels, img_id in validation_dataloader:
                     images = images.to(device)
                     labels = labels.to(device)
+                    img_id = img_id.to(device)
                     outputs = model(images)
                     loss = criterion(outputs, labels)
                     val_loss += loss.item()
@@ -196,24 +199,29 @@ def run_pipeline():
     # c) Model Conversion for Feature Extraction
     # The teacher’s FineTunedResNet builds a combined model: self.combined_model = nn.Sequential(self.model, self.new_layers)
     # To convert for feature extraction, replace the classification head (new_layers) with Identity.
-    model_training.new_layers = nn.Identity()
+    
+    model_training = FineTunedResNet(len(label_encoder))
+    
+    model_training = nn.Sequential(*list(model_training.children())[:-1])
+    saved_weights = 'data/final_model/image_model.pt'
+    model_training.load_state_dict(torch.load(saved_weights))
+    
+    '''model_training.new_layers = nn.Identity()
     final_model_dir = 'data/final_model'
     os.makedirs(final_model_dir, exist_ok=True)
     final_model_path = os.path.join(final_model_dir, 'image_model.pt')
     torch.save(model_training.state_dict(), final_model_path)
     print(f'Feature extraction model saved at {final_model_path}')
-
+'''
     # d) Embedding Extraction
     image_embeddings = {}
     model_training.eval()
     with torch.no_grad():
         # Since ImageDataset returns (image, label), we use the index as key.
-        for i, (images, labels) in enumerate(DataLoader(train_dataset, batch_size=32, shuffle=False)):
+        for i, (images, labels, img_id) in enumerate(DataLoader(train_dataset, batch_size=1, shuffle=False)):
             images = images.to(device)
             embeddings = model_training(images)
-            for j, embedding in enumerate(embeddings):
-                key = str(i * 32 + j)
-                image_embeddings[key] = embedding.cpu().tolist()
+            image_embeddings[img_id] = embeddings.cpu().tolist()
 
     output_dir = 'data/output'
     os.makedirs(output_dir, exist_ok=True)

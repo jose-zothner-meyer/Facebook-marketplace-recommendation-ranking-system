@@ -19,26 +19,3 @@ TRANSFORM_PIPELINE = transforms.Compose([
     transforms.Normalize(mean=[0.485, 0.456, 0.406],
                          std=[0.229, 0.224, 0.225])
 ])
-
-class FeatureExtractionCNN(nn.Module):
-    """
-    Modifies a pretrained ResNet50 to extract image embeddings.
-    
-    The final classification layer is removed so that a 1000-dimensional embedding is produced.
-    """
-    def __init__(self) -> None:
-        super(FeatureExtractionCNN, self).__init__()
-        resnet = models.resnet50(pretrained=True)
-        # Remove the final classification layer by taking all layers except the last one.
-        self.features = nn.Sequential(*list(resnet.children())[:-1])
-        # Add a new fully connected layer to map features to a 1000-dimensional embedding.
-        self.feature_fc = nn.Linear(2048, 1000)
-
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass: extract features and compute a 1000-dimensional embedding.
-        """
-        x = self.features(images)
-        x = x.view(x.size(0), -1)
-        x = self.feature_fc(x)
-        return x

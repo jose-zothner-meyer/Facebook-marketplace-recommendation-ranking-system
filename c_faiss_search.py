@@ -94,7 +94,7 @@ def find_similar_images(image_path, model, transform, index, image_ids, k=5):
 
 def main():
     # Set query image path (for testing, you can modify this path).
-    query_image_path = 'data/test_img/tv1.jpeg'
+    query_image_path = 'images/0a851ca1-4645-4e50-bbfd-8099110398f2.jpg'
     if not os.path.exists(query_image_path):
         print(f"Error: Image file '{query_image_path}' does not exist.")
         sys.exit(1)
