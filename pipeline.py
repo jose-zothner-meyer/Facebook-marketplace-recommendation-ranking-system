@@ -193,42 +193,80 @@ def run_pipeline():
 
         writer.flush()
 
-    train(model_training, epochs=5)
+    train(model_training, epochs=10) # TRAIN for 10 epochs
     writer.close()
 
     # c) Model Conversion for Feature Extraction
     # The teacher’s FineTunedResNet builds a combined model: self.combined_model = nn.Sequential(self.model, self.new_layers)
-    # To convert for feature extraction, replace the classification head (new_layers) with Identity.
     
-    model_training = FineTunedResNet(len(label_encoder))
-    
-    model_training = nn.Sequential(*list(model_training.children())[:-1])
-    saved_weights = 'data/final_model/image_model.pt'
-    model_training.load_state_dict(torch.load(saved_weights))
-    
-    '''model_training.new_layers = nn.Identity()
-    final_model_dir = 'data/final_model'
-    os.makedirs(final_model_dir, exist_ok=True)
-    final_model_path = os.path.join(final_model_dir, 'image_model.pt')
-    torch.save(model_training.state_dict(), final_model_path)
-    print(f'Feature extraction model saved at {final_model_path}')
-'''
     # d) Embedding Extraction
-    image_embeddings = {}
-    model_training.eval()
-    with torch.no_grad():
-        # Since ImageDataset returns (image, label), we use the index as key.
-        for i, (images, labels, img_name) in enumerate(DataLoader(train_dataset, batch_size=1, shuffle=False)):
-            images = images.to(device)
-            embeddings = model_training(images)
-            image_embeddings[str(img_name[0])] = embeddings.cpu().tolist()
+    # Set device for PyTorch computations (GPU if available, else CPU)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
 
+    # Parameters (adjust as needed)
+    num_classes = 13  # Number of unique labels/classes in the dataset
+    saved_weights = 'data/final_model/image_model.pt'  # Model weights file
+    training_csv = 'data/training_data.csv'  # CSV containing "Image" and "labels" columns
+    image_dir = 'cleaned_images/'  # Directory containing image files
+
+    # Step 1: Instantiate and Load Pretrained Model
+    """
+    Load the FineTunedResNet model trained for image classification.
+    Then, convert the model to extract feature embeddings instead of classification outputs.
+    """
+    model_training = FineTunedResNet(num_classes)
+
+    # Load the saved model weights
+    model_training.load_state_dict(torch.load(saved_weights, map_location=device))
+    model_training.to(device)
+
+    # Convert the classification model into a feature extraction model
+    # We remove the classification head to retain only feature extraction layers
+    model_extractor = nn.Sequential(*list(model_training.combined_model.children())[:-1])
+    model_extractor.to(device)
+    model_extractor.eval()  # Set the model to evaluation mode
+
+    # Step 2: Load Dataset
+    """
+    Load the dataset for embedding extraction.
+    The ImageDataset class is used to load images based on a CSV file.
+    """
+    dataset = ImageDataset(training_csv, image_dir)
+
+    # Create a DataLoader for efficient batch processing
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+
+    # Step 3: Compute Embeddings
+    """
+    Iterate through images, pass them through the feature extractor, and store embeddings.
+    Each embedding corresponds to a high-dimensional numerical representation of an image.
+    """
+    image_embeddings = {}
+
+    with torch.no_grad():  # Disable gradient computation for inference
+        for idx, (image, label, img_name) in enumerate(dataloader):
+            image = image.to(device)  # Move image tensor to the correct device
+
+            # Extract feature embedding using the modified model
+            embedding = model_extractor(image)
+            embedding = embedding.flatten().detach().cpu().numpy()  # Convert tensor to NumPy array
+
+            # Store the embedding using the image filename as the key
+            image_embeddings[str(img_name)] = embedding.tolist()
+
+    # Step 5: Save Embeddings to JSON File
+    """
+    Save the computed image embeddings as a JSON file for future use.
+    """
     output_dir = 'data/output'
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)  # Ensure the output directory exists
+
     embeddings_path = os.path.join(output_dir, 'image_embeddings.json')
     with open(embeddings_path, 'w') as f:
         json.dump(image_embeddings, f)
-    print(f'Image embeddings have been successfully saved to {embeddings_path}')
+
+    print(f"Image embeddings successfully saved to {embeddings_path}")
 
 if __name__ == "__main__":
     run_pipeline()
