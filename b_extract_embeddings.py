@@ -1,86 +1,97 @@
 """
 b_extract_embeddings.py
 
-This script extracts image embeddings using the feature extraction model.
-It loads the final model from 'data/final_model/image_model.pt' and uses the transformation
-pipeline defined in b_feature_extractor_model.py.
+This file contains the integrated training and feature extraction pipeline.
+It combines data processing, model training (with additional accuracy metrics), 
+model conversion, and image embedding extraction into one function: run_pipeline().
 
-Key differences from your initial code:
-  - File paths now match the outputs from the integrated pipeline.
-  - Inline comments clarify each step.
+This script has been updated to include additional procedures from Jose_sandbox.ipynb.
+
+Steps:
+1. Data Processing: Reads image labels and prepares training, validation, and test sets.
+2. Model Training: Fine-tunes a ResNet-based model for image classification.
+3. Model Conversion: Converts the trained model to extract image embeddings.
+4. Embedding Extraction: Generates and saves feature embeddings for images.
 """
 
 import os
 import json
-import sys
-from typing import Dict, Optional
-
 import torch
-from PIL import Image
+import torch.nn as nn
+from torch.utils.data import DataLoader
 from torchvision import transforms
+from PIL import Image
+import pandas as pd
 
-from b_feature_extractor_model import FeatureExtractionCNN, TRANSFORM_PIPELINE
+# Import the FineTunedResNet model from the teacher's file
+from a_resnet_transfer_trainer import FineTunedResNet
+# Import the custom dataset class
+from image_dataset_pytorch import ImageDataset
 
-def process_image(image_path: str) -> Optional[torch.Tensor]:
-    """
-    Load an image, apply the transformation pipeline, and add a batch dimension.
-    """
-    try:
-        image = Image.open(image_path).convert("RGB")
-    except Exception as e:
-        print(f"Error opening image {image_path}: {e}")
-        return None
-    img_tensor = TRANSFORM_PIPELINE(image)
-    return img_tensor.unsqueeze(0)
+# Set device for PyTorch computations (GPU if available, else CPU)
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
-def extract_all_embeddings(image_folder: str, model: FeatureExtractionCNN) -> Dict[str, list]:
-    """
-    Iterate over valid images in the folder, extract embeddings using the model,
-    and return a dictionary mapping image IDs to embedding vectors.
-    """
-    valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff')
-    image_files = [f for f in os.listdir(image_folder) if f.lower().endswith(valid_extensions)]
-    if not image_files:
-        print(f"No valid image files found in '{image_folder}'.")
-        sys.exit(1)
-    embeddings_dict: Dict[str, list] = {}
-    for image_filename in sorted(image_files):
-        image_path = os.path.join(image_folder, image_filename)
-        img_tensor = process_image(image_path)
-        if img_tensor is None:
-            print(f"Skipping image {image_filename} due to processing error.")
-            continue
-        with torch.no_grad():
-            embedding_tensor = model(img_tensor)
-        embedding_tensor = embedding_tensor.squeeze(0)
-        image_id = os.path.splitext(image_filename)[0]
-        embeddings_dict[image_id] = embedding_tensor.tolist()
-        print(f"Processed image: {image_filename}")
-    return embeddings_dict
+# Parameters (adjust as needed)
+num_classes = 13  # Number of unique labels/classes in the dataset
+saved_weights = 'epoch_5.pth'  # Model weights file
+training_csv = 'data/training_data.csv'  # CSV containing "Image" and "labels" columns
+image_dir = 'cleaned_images/'  # Directory containing image files
 
-def main() -> None:
-    """
-    Main function to extract image embeddings for all images in 'cleaned_images'.
-    """
-    image_folder: str = "cleaned_images"
-    
-    # Instantiate the feature extraction model.
-    model = FeatureExtractionCNN()
-    model_path: str = "data/final_model/image_model.pt"
-    
-    if os.path.exists(model_path):
-        model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu")))
-        print("Loaded saved model weights.")
-    else:
-        print("Model weights not found. Using default parameters.")
-    model.eval()
+# Step 1: Instantiate and Load Pretrained Model
+"""
+Load the FineTunedResNet model trained for image classification.
+Then, convert the model to extract feature embeddings instead of classification outputs.
+"""
+model_training = FineTunedResNet(num_classes)
 
-    embeddings_dict = extract_all_embeddings(image_folder, model)
-    
-    output_json: str = "data/output/image_embeddings.json"
-    with open(output_json, "w") as json_file:
-        json.dump(embeddings_dict, json_file)
-    print(f"Saved embeddings for {len(embeddings_dict)} images to {output_json}")
+# Load the saved model weights
+model_training.load_state_dict(torch.load(saved_weights, map_location=device))
+model_training.to(device)
 
-if __name__ == "__main__":
-    main()
+# Convert the classification model into a feature extraction model
+# We remove the classification head to retain only feature extraction layers
+model_extractor = nn.Sequential(*list(model_training.combined_model.children())[:-1])
+model_extractor.to(device)
+model_extractor.eval()  # Set the model to evaluation mode
+
+# Step 2: Load Dataset
+"""
+Load the dataset for embedding extraction.
+The ImageDataset class is used to load images based on a CSV file.
+"""
+dataset = ImageDataset(training_csv, image_dir)
+
+# Create a DataLoader for efficient batch processing
+dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+
+# Step 3: Compute Embeddings
+"""
+Iterate through images, pass them through the feature extractor, and store embeddings.
+Each embedding corresponds to a high-dimensional numerical representation of an image.
+"""
+image_embeddings = {}
+
+with torch.no_grad():  # Disable gradient computation for inference
+    for idx, (image, label, img_name) in enumerate(dataloader):
+        image = image.to(device)  # Move image tensor to the correct device
+
+        # Extract feature embedding using the modified model
+        embedding = model_extractor(image)
+        embedding = embedding.flatten().detach().cpu().numpy()  # Convert tensor to NumPy array
+
+        # Store the embedding using the image filename as the key
+        image_embeddings[str(img_name)] = embedding.tolist()
+
+# Step 5: Save Embeddings to JSON File
+"""
+Save the computed image embeddings as a JSON file for future use.
+"""
+output_dir = 'data/output'
+os.makedirs(output_dir, exist_ok=True)  # Ensure the output directory exists
+
+embeddings_path = os.path.join(output_dir, 'image_embeddings.json')
+with open(embeddings_path, 'w') as f:
+    json.dump(image_embeddings, f)
+
+print(f"Image embeddings successfully saved to {embeddings_path}")

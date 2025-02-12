@@ -34,6 +34,7 @@ from torch.utils.tensorboard import SummaryWriter
 # Import the teacher's model and our dataset class.
 from a_resnet_transfer_trainer import FineTunedResNet
 from image_dataset_pytorch import ImageDataset
+import re
 
 def create_model_dir(base_dir='data/model_evaluation'):
     """
@@ -130,10 +131,10 @@ def run_pipeline():
             train_total = 0
 
             # Unpack only two values: (images, labels)
-            for i, (images, labels, img_id) in enumerate(train_dataloader):
+            for i, (images, labels, img_name) in enumerate(train_dataloader):
                 images = images.to(device)
                 labels = labels.to(device)
-                #img_id = img_id.to(device)
+                img_name = img_name.to(device)
                 optimizer.zero_grad()
                 outputs = model(images)
                 loss = criterion(outputs, labels)
@@ -163,10 +164,10 @@ def run_pipeline():
             val_correct = 0
             val_total = 0
             with torch.no_grad():
-                for images, labels, img_id in validation_dataloader:
+                for images, labels, img_name in validation_dataloader:
                     images = images.to(device)
                     labels = labels.to(device)
-                    #img_id = img_id.to(device)
+                    img_name = img_name.to(device)
                     outputs = model(images)
                     loss = criterion(outputs, labels)
                     val_loss += loss.item()
@@ -197,12 +198,10 @@ def run_pipeline():
     writer.close()
 
     # c) Model Conversion for Feature Extraction
-    # The teacher’s FineTunedResNet builds a combined model: self.combined_model = nn.Sequential(self.model, self.new_layers)
+    # model weights!!!
     
     # d) Embedding Extraction
     # Set device for PyTorch computations (GPU if available, else CPU)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
 
     # Parameters (adjust as needed)
     num_classes = 13  # Number of unique labels/classes in the dataset
