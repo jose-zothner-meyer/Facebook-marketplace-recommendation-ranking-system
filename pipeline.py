@@ -133,7 +133,7 @@ def run_pipeline():
             for i, (images, labels, img_id) in enumerate(train_dataloader):
                 images = images.to(device)
                 labels = labels.to(device)
-                img_id = img_id.to(device)
+                #img_id = img_id.to(device)
                 optimizer.zero_grad()
                 outputs = model(images)
                 loss = criterion(outputs, labels)
@@ -166,7 +166,7 @@ def run_pipeline():
                 for images, labels, img_id in validation_dataloader:
                     images = images.to(device)
                     labels = labels.to(device)
-                    img_id = img_id.to(device)
+                    #img_id = img_id.to(device)
                     outputs = model(images)
                     loss = criterion(outputs, labels)
                     val_loss += loss.item()
