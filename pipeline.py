@@ -218,10 +218,10 @@ def run_pipeline():
     model_training.eval()
     with torch.no_grad():
         # Since ImageDataset returns (image, label), we use the index as key.
-        for i, (images, labels, img_id) in enumerate(DataLoader(train_dataset, batch_size=1, shuffle=False)):
+        for i, (images, labels, img_name) in enumerate(DataLoader(train_dataset, batch_size=1, shuffle=False)):
             images = images.to(device)
             embeddings = model_training(images)
-            image_embeddings[img_id] = embeddings.cpu().tolist()
+            image_embeddings[str(img_name[0])] = embeddings.cpu().tolist()
 
     output_dir = 'data/output'
     os.makedirs(output_dir, exist_ok=True)
