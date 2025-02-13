@@ -34,7 +34,7 @@ print(f"Using device: {device}")
 
 # Parameters (adjust as needed)
 num_classes = 13  # Number of unique labels/classes in the dataset
-saved_weights = 'epoch_5.pth'  # Model weights file
+saved_weights = 'data/model_evaluation/model_20250211-192554/weights/epoch_5.pth'  # Model weights file
 training_csv = 'data/training_data.csv'  # CSV containing "Image" and "labels" columns
 image_dir = 'cleaned_images/'  # Directory containing image files
 

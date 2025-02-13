@@ -1,129 +1,83 @@
-"""
-faiss_search.py
-
-This script creates a FAISS search index using image embeddings and performs vector search to find similar images.
-Key differences and integrations:
-  - It loads image embeddings from 'data/output/image_embeddings.json' (produced by the integrated pipeline).
-  - It loads the feature extraction model from 'data/final_model/image_model.pt'.
-  - Inline comments explain each step.
-"""
-
-import os
-import sys
 import json
-import faiss
 import numpy as np
+import faiss
 from PIL import Image
 import torch
-from torchvision import models, transforms
-from torchvision.models import ResNet50_Weights
+import torchvision.transforms as transforms
 
-# Function to extract features from a single image using the provided model and transform.
-def extract_features(image_path, model, transform):
-    try:
-        image = Image.open(image_path).convert('RGB')
-        # Add batch dimension.
-        image = transform(image).unsqueeze(0)
-        with torch.no_grad():
-            features = model(image)
-        return features.squeeze().numpy()
-    except Exception as e:
-        print(f"Error extracting features from image {image_path}: {e}")
-        return None
+# Import the model to extract features
+from a_resnet_transfer_trainer import FineTunedResNet
+import json
 
-# Step 1: Load image embeddings from the JSON file.
-def load_image_embeddings(embeddings_file):
-    try:
-        with open(embeddings_file, 'r') as f:
-            image_embeddings = json.load(f)
-        return image_embeddings
-    except Exception as e:
-        print(f"Error loading image embeddings from {embeddings_file}: {e}")
-        sys.exit(1)
+# Load the saved dictionary containing {image_id: embedding}
+with open('data/output/image_embeddings.json', 'r') as f:
+    embeddings_dict = json.load(f)
 
-# Step 2: Create a FAISS index and add the image embeddings.
-def create_faiss_index(image_embeddings):
-    try:
-        # Determine embedding dimension from one of the embeddings.
-        embedding_dim = len(next(iter(image_embeddings.values())))
-        embeddings = np.array(list(image_embeddings.values())).astype('float32')
-        index = faiss.IndexFlatL2(embedding_dim)
-        index.add(embeddings)
-        return index, list(image_embeddings.keys())
-    except Exception as e:
-        print(f"Error creating FAISS index: {e}")
-        sys.exit(1)
+image_ids = list(embeddings_dict.keys())
+embeddings = np.array(list(embeddings_dict.values()), dtype=np.float32)
 
-# Step 3: Load the feature extraction model and define the necessary transformations.
-def load_feature_extractor(model_path):
-    try:
-        weights = ResNet50_Weights.IMAGENET1K_V1
-        feature_extractor_model = models.resnet50(weights=weights)
-        num_features = feature_extractor_model.fc.in_features
-        feature_extractor_model.fc = torch.nn.Linear(num_features, 1000)
-        feature_extractor_model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-        # Convert model to feature extractor by replacing fc with Identity.
-        feature_extractor_model.fc = torch.nn.Identity()
-        feature_extractor_model.eval()
-        return feature_extractor_model
-    except Exception as e:
-        print(f"Error loading feature extractor model from {model_path}: {e}")
-        sys.exit(1)
+# Create a FAISS index
+dimension = embeddings.shape[1]  # Dimension of each embedding vector
+index = faiss.IndexFlatL2(dimension)
+index.add(embeddings)
 
-# Define the transformation pipeline.
-def get_transform():
-    return transforms.Compose([
-        transforms.Resize((224, 224)),
+# Example usage: query the index with the first embedding (for testing)
+D, I = index.search(embeddings[:1], k=5)
+similar_images = [image_ids[idx] for idx in I[0]]
+print("Similar images (from stored embeddings) to the first image:", similar_images)
+
+
+# ---------------------------------------------------------------------
+# Procedure to load an image from a given path and perform FAISS search
+def extract_embedding(image_path):
+    """
+    Loads an image from `image_path`, applies the necessary transforms, extracts a feature
+    embedding using the pre-trained model, and returns the embedding as a numpy array.
+    """
+    # Define transforms (should match the ones used during training)
+    transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
     ])
+    
+    # Open and transform the image
+    image = Image.open(image_path).convert("RGB")
+    image_tensor = transform(image).unsqueeze(0)  # add batch dimension
 
-# Step 4: Perform vector search to find similar images.
-def find_similar_images(image_path, model, transform, index, image_ids, k=5):
-    try:
-        query_embedding = extract_features(image_path, model, transform)
-        if query_embedding is None:
-            print("Error extracting features from query image.")
-            return []
-        distances, indices = index.search(np.array([query_embedding]), k)
-        similar_image_ids = [image_ids[idx] for idx in indices[0]]
-        return similar_image_ids
-    except Exception as e:
-        print(f"Error performing FAISS search: {e}")
-        return []
+    # Set device: use GPU if available else CPU
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    
+    # Load model and convert to a feature extractor (classification head removed)
+    num_classes = 13  # update if different
+    saved_weights = 'epoch_5.pth'  # update if needed
+    
+    model_training = FineTunedResNet(num_classes)
+    model_training.load_state_dict(torch.load(saved_weights, map_location=device))
+    model_training.to(device)
+    
+    # Remove the classification head; adjust according to your model structure
+    model_extractor = torch.nn.Sequential(*list(model_training.combined_model.children())[:-1])
+    model_extractor.to(device)
+    model_extractor.eval()
+    
+    with torch.no_grad():
+        embedding = model_extractor(image_tensor.to(device))
+        embedding = embedding.flatten().cpu().numpy()
+    
+    return embedding
 
-def main():
-    # Set query image path (for testing, you can modify this path).
-    query_image_path = 'images/0a851ca1-4645-4e50-bbfd-8099110398f2.jpg'
-    if not os.path.exists(query_image_path):
-        print(f"Error: Image file '{query_image_path}' does not exist.")
-        sys.exit(1)
 
-    # File paths for embeddings and model.
-    embeddings_file = 'data/output/image_embeddings.json'
-    model_path = 'data/final_model/image_model.pt'
+# Provide the path to your query image
+query_image_path = 'images/0a40eb4e-b033-4a98-9374-e1d4ad2943ac.jpg'  # Update this path to your image
 
-    # Load components.
-    image_embeddings = load_image_embeddings(embeddings_file)
-    index, image_ids = create_faiss_index(image_embeddings)
-    feature_extractor_model = load_feature_extractor(model_path)
-    transform = get_transform()
+# Extract the embedding for the query image
+query_embedding = extract_embedding(query_image_path)
+query_embedding = query_embedding.reshape(1, dimension)
 
-    # Find similar images.
-    similar_images = find_similar_images(
-        query_image_path,
-        feature_extractor_model,
-        transform,
-        index,
-        image_ids,
-        k=5
-    )
-
-    print(f"Similar images to '{query_image_path}': {similar_images}")
-
-    # Clean up model from memory.
-    del feature_extractor_model
-    torch.cuda.empty_cache()
-
-if __name__ == "__main__":
-    main()
+# Search the FAISS index using the extracted query embedding
+D, I = index.search(query_embedding, k=5)
+similar_images = [image_ids[idx] for idx in I[0]]
+print("Similar images for the query image:", similar_images)
