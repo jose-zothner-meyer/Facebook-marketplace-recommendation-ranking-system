@@ -21,7 +21,7 @@ from image_dataset_pytorch import ImageDataset
 # Legacy trainer is still available if needed.
 from a_resnet_transfer_trainer import ResNetTransferLearner
 # Import the integrated pipeline function.
-from pipeline import run_pipeline
+from pipeline_second import run_pipeline
 
 CSV_PATH: str = "data/training_data.csv"
 
@@ -62,7 +62,7 @@ def inspect_dataset() -> None:
     dataset = ImageDataset(CSV_PATH, image_dir)
     data_loader = DataLoader(dataset, batch_size=1, shuffle=True)
 
-    for images, labels in data_loader:
+    for images, labels, img_name in data_loader:
         print(f"\nBatch loaded: Image shape {images.shape}, Labels: {labels}")
         break
 

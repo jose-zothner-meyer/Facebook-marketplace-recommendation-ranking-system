@@ -52,7 +52,7 @@ def extract_embedding(image_path):
     
     # Load model and convert to a feature extractor (classification head removed)
     num_classes = 13  # update if different
-    saved_weights = 'epoch_5.pth'  # update if needed
+    saved_weights = 'data/model_evaluation/model_20250211-192554/weights/epoch_5.pth'  # update if needed
     
     model_training = FineTunedResNet(num_classes)
     model_training.load_state_dict(torch.load(saved_weights, map_location=device))

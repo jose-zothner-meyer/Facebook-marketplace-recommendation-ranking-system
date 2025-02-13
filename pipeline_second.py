@@ -3,19 +3,14 @@ pipeline.py
 
 This file contains the integrated training and feature extraction pipeline.
 It combines data processing, model training (with additional accuracy metrics), model conversion,
-and image embedding extraction into one function: run_pipeline().
+and (optionally) image embedding extraction into one function: run_pipeline().
 
-Key changes compared to the initial version:
-  - Uses the teacher’s FineTunedResNet (imported from a_resnet_transfer_trainer.py) as the model.
-  - The training loop computes and logs additional metrics (accuracy).
-  - After training, the trained model is converted for feature extraction by replacing its classification head (new_layers)
-    with an Identity mapping so that the model outputs raw feature embeddings.
-  - The CSV is read using the "labels" column (because ProductLabeler outputs columns "Image" and "labels").
-  - The split DataFrames are written to temporary CSV files so that ImageDataset (which expects a file path)
-    works correctly.
-  - Final outputs are saved to:
-       • Feature extraction model: data/final_model/image_model.pt
-       • Image embeddings: data/output/image_embeddings.json
+Key changes:
+  - The training loop saves the model weights (and metrics) at the end of every epoch.
+  - A timestamped folder is created under data/model_evaluation with a subfolder "weights".
+  - After training, the classification model is converted to a feature extraction model by
+    replacing its classification head with a new fully connected layer with 1000 neurons.
+  - The final model weights are saved to data/final_model/image_model.pt.
 """
 
 import os
@@ -58,15 +53,18 @@ def run_pipeline():
       b) Model Training:
          - Instantiates the teacher’s FineTunedResNet model.
          - Trains the model using a standard training loop while computing and logging additional metrics (accuracy).
-      c) Model Conversion:
-         - Replaces the classification head (new_layers) with an Identity mapping so that the model outputs raw feature embeddings.
+         - At the end of each epoch, saves model weights and appends training/validation metrics to a text file.
+      c) Model Conversion for Feature Extraction:
+         - Converts the classification model into a feature extraction model by replacing the classification head
+           with a new fully connected layer that outputs a 1000-dimensional vector.
          - Saves the converted model to 'data/final_model/image_model.pt'.
-      d) Embedding Extraction:
-         - Uses the feature extraction model to compute embeddings for images from the training split.
-         - Saves the embeddings as a JSON file in 'data/output/image_embeddings.json'.
+      d) (Optional) Embedding Extraction:
+         - Once you need to extract image embeddings, you can use the feature extraction model.
     """
 
-# a) Data Processing & Setup
+    # ---------------------------
+    # a) Data Processing & Setup
+    # ---------------------------
     csv_path = 'data/training_data.csv'
     dataframe = pd.read_csv(csv_path, dtype={'labels': int})
     
@@ -95,6 +93,7 @@ def run_pipeline():
     df_validation.to_csv(temp_val_csv, index=False)
     df_test.to_csv(temp_test_csv, index=False)
 
+    # Define image transformation pipeline.
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406],
@@ -194,20 +193,41 @@ def run_pipeline():
 
         writer.flush()
 
-    train(model_training, epochs=10)  # TRAIN for 10 epochs
+    train(model_training, epochs=2)  # TRAIN for 10 epochs
     writer.close()
 
-    # c) Model Conversion for Feature Extraction
-    # The teacher’s FineTunedResNet builds a combined model:
-    
-    
-    
-    '''
-    # d) Embedding Extraction
-    # Set device for PyTorch computations (GPU if available, else CPU)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    # ----------------------------------------------------------
+    # c) Model Conversion for Feature Extraction (Task 7)
+    # ----------------------------------------------------------
+    # Convert the classification model into a feature extractor by replacing its classification head.
+    # Here, we replace "new_layers" (if it exists) with a new fully connected layer that outputs 1000 neurons.
+    if hasattr(model_training, 'new_layers'):
+        # Access the linear layer within the Sequential block (index 1 holds the Linear layer)
+        in_features = model_training.new_layers[1].in_features
+        model_training.new_layers = nn.Linear(in_features, 1000)
+        print("Converted model by replacing 'new_layers' with a new fc layer with 1000 neurons.")
+    elif hasattr(model_training, 'fc'):
+        in_features = model_training.fc.in_features
+        model_training.fc = nn.Linear(in_features, 1000)
+        print("Converted model by replacing 'fc' with a new fc layer with 1000 neurons.")
+    else:
+        raise AttributeError("The model does not have 'new_layers' or 'fc' attribute to replace.")
 
+    # Set the model to evaluation mode.
+    model_training.eval()
+
+    # Create folder for the final model.
+    final_model_dir = 'data/final_model'
+    os.makedirs(final_model_dir, exist_ok=True)
+    final_model_path = os.path.join(final_model_dir, 'image_model.pt')
+
+    # Save the final feature extraction model weights.
+    torch.save(model_training.state_dict(), final_model_path)
+    print(f"Feature extraction model saved to {final_model_path}")
+
+    # ----------------------------------------------------------
+    # d) Embedding Extraction (Task 8)
+    # ----------------------------------------------------------
     # Parameters (adjust as needed)
     num_classes = 13  # Number of unique labels/classes in the dataset
     saved_weights = 'data/final_model/image_model.pt'  # Model weights file
@@ -225,8 +245,8 @@ def run_pipeline():
     model_training.load_state_dict(torch.load(saved_weights, map_location=device))
     model_training.to(device)
 
-    # Convert the classification model into a feature extraction model
-    # We remove the classification head to retain only feature extraction layers
+    # Convert the classification model into a feature extraction model.
+    # We remove the classification head to retain only feature extraction layers.
     model_extractor = nn.Sequential(*list(model_training.combined_model.children())[:-1])
     model_extractor.to(device)
     model_extractor.eval()  # Set the model to evaluation mode
@@ -236,7 +256,7 @@ def run_pipeline():
     Load the dataset for embedding extraction.
     The ImageDataset class is used to load images based on a CSV file.
     """
-    dataset = ImageDataset(training_csv, image_dir)
+    dataset = ImageDataset(training_csv, image_dir, transform=transform)
 
     # Create a DataLoader for efficient batch processing
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
@@ -270,7 +290,7 @@ def run_pipeline():
     with open(embeddings_path, 'w') as f:
         json.dump(image_embeddings, f)
 
-    print(f"Image embeddings successfully saved to {embeddings_path}")'''
+    print(f"Image embeddings successfully saved to {embeddings_path}")
 
 if __name__ == "__main__":
     run_pipeline()
