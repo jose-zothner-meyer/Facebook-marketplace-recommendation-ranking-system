@@ -206,10 +206,10 @@ def run_pipeline():
         in_features = model_training.new_layers[1].in_features
         model_training.new_layers = nn.Linear(in_features, 1000)
         print("Converted model by replacing 'new_layers' with a new fc layer with 1000 neurons.")
-    elif hasattr(model_training, 'fc'):
-        in_features = model_training.fc.in_features
-        model_training.fc = nn.Linear(in_features, 1000)
-        print("Converted model by replacing 'fc' with a new fc layer with 1000 neurons.")
+    # elif hasattr(model_training, 'fc'):
+    #     in_features = model_training.fc.in_features
+    #     model_training.fc = nn.Linear(in_features, 1000)
+    #     print("Converted model by replacing 'fc' with a new fc layer with 1000 neurons.")
     else:
         raise AttributeError("The model does not have 'new_layers' or 'fc' attribute to replace.")
 
